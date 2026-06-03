@@ -1,0 +1,79 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color: #213547;
+  background: #f6f7f9;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 0.25rem;
+}
+
+.note {
+  margin: 0 0 1.5rem;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.swatch {
+  height: 120px;
+  width: 100%;
+}
+
+.meta {
+  padding: 0.75rem;
+}
+
+.meta h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.recipe {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+
+.ph {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b21a8;
+}
+
+.meta code {
+  display: block;
+  font-size: 0.75rem;
+  color: #374151;
+}
+
+.swatch-wrap {
+  position: relative;
+  height: 120px;
+  background:
+    linear-gradient(45deg, #ddd 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, #ddd 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, transparent 75%, #ddd 75%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, #ddd 75%) -8px 0 / 16px 16px,
+    #fff;
+}
