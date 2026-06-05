@@ -1,5 +1,5 @@
 // ============================================================================
-// カクテル3Dビジュアル化エンジン — ステップ1＋4＋5＋6＋7
+// カクテル3Dビジュアル化エンジン — ステップ1＋3＋4＋5＋6＋7
 // 「半透明の色つき液体が入ったグラスを、マウスでぐるぐる回して眺める」
 //   ＋ ステップ4：周囲の環境を映り込ませる（環境マップ）
 //   ＋ ステップ5：ハイライトをふわっと光らせる（bloom 後処理）
@@ -112,6 +112,26 @@ const BLOOM_PRESETS = {
   3: { strength: 0.75, radius: 0.6, threshold: 0.3 }, // 華やか
 } as const;
 const bloom = BLOOM_PRESETS[BLOOM_PRESET];
+
+// ----------------------------------------------------------------------------
+// ★ 液体の縦グラデ（吸光度）★ — ステップ3
+//   実際の飲み物は「底ほど濃く・液面ほど薄く」見える。これは光が液体を通る距離が
+//   長いほど色素に吸収されて濃く見えるため（ランベルト・ベールの法則）。ここでは
+//   厳密な光路長は計算せず、「液体メッシュの高さ(Y)が低いほど濃く」する高さベースの
+//   近似で表現する。実装は既存マテリアルの onBeforeCompile に最小限のコードを差し込む
+//   方式（ShaderMaterial に置き換えないので、環境マップ/透明/bloom との相性はそのまま）。
+//     ・USE_GRADIENT     … グラデを使うか（false で従来どおり一様な色）
+//     ・GRADIENT_PRESET  … 濃さの強さ 1=控えめ / 2=標準 / 3=強め
+//       density … 底をどれだけ濃く（暗く・不透明に）するかの強さ
+// ----------------------------------------------------------------------------
+const USE_GRADIENT = true; // ← false でグラデなし（比較用）
+const GRADIENT_PRESET = 2; // ← 1 / 2 / 3 で濃さ切替
+const GRADIENT_PRESETS = {
+  1: { density: 0.6 }, // 控えめ
+  2: { density: 1.0 }, // 標準
+  3: { density: 1.6 }, // 強め
+} as const;
+const gradient = GRADIENT_PRESETS[GRADIENT_PRESET];
 
 // ----------------------------------------------------------------------------
 // ★ 背景テクスチャを作る関数 ★ — ステップ7
@@ -371,6 +391,51 @@ const liquidMaterial = new THREE.MeshPhysicalMaterial({
   //   transmission を入れると透け具合をそちらが支配し、opacity が効かなくなるため、
   //   ここでは opacity による素直なアルファ透過で透明度を制御する。
 });
+// --- 縦グラデ（吸光度）の差し込み — ステップ3 -----------------------------
+//   液体の高さ範囲（底のY〜液面のY）を、メッシュのバウンディングボックスから取得する。
+//   computeBoundingBox() で geometry.boundingBox.min/max が計算される。
+liquidGeometry.computeBoundingBox();
+const LIQUID_BOTTOM_Y = liquidGeometry.boundingBox!.min.y; // 液体の最下点（V字の先端側）
+const LIQUID_TOP_Y = liquidGeometry.boundingBox!.max.y; // 液面の高さ
+
+if (USE_GRADIENT) {
+  // onBeforeCompile：マテリアルがシェーダーにコンパイルされる直前に呼ばれ、
+  //   生成済みのシェーダー文字列(shader.vertexShader / fragmentShader)に
+  //   自前のコードを差し込める。ShaderMaterial に置き換えず最小限の拡張で済む。
+  liquidMaterial.onBeforeCompile = (shader) => {
+    // (1) 高さ範囲と濃さを uniform（シェーダーに渡す定数）として追加する
+    shader.uniforms.uLiquidBottom = { value: LIQUID_BOTTOM_Y };
+    shader.uniforms.uLiquidTop = { value: LIQUID_TOP_Y };
+    shader.uniforms.uDensity = { value: gradient.density };
+
+    // (2) 頂点シェーダー：各頂点のローカルY座標をフラグメントへ渡す（varying）
+    shader.vertexShader =
+      'varying float vLocalY;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\n  vLocalY = position.y;',
+    );
+
+    // (3) フラグメントシェーダー：高さから「濃さ係数」を作り、色と不透明度に反映する。
+    //   color_fragment の直後（diffuseColor が確定した所）に差し込むのが安全。
+    shader.fragmentShader =
+      'varying float vLocalY;\nuniform float uLiquidBottom;\nuniform float uLiquidTop;\nuniform float uDensity;\n' +
+      shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      // t: 0=液面（上・薄い） → 1=底（下・濃い）
+      float t = clamp((uLiquidTop - vLocalY) / max(uLiquidTop - uLiquidBottom, 0.0001), 0.0, 1.0);
+      // ランベルト・ベール風：深いほど指数的に濃く（暗く）なる
+      float absorb = 1.0 - exp(-uDensity * t * 1.5);
+      diffuseColor.rgb *= (1.0 - absorb * 0.6); // 底ほど色を暗く濃く
+      diffuseColor.a = mix(diffuseColor.a, min(diffuseColor.a + 0.3, 1.0), absorb); // 底ほど不透明に
+      `,
+    );
+  };
+  liquidMaterial.transparent = true; // 念のため透明処理を有効化
+}
+
 const liquid = new THREE.Mesh(liquidGeometry, liquidMaterial);
 // 液体の輪郭線はすでにボウル内側の高さ(y=1.45〜)で作っているので、位置調整は不要。
 scene.add(liquid);
