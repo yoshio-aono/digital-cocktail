@@ -92,22 +92,23 @@ const bloom = BLOOM_PRESETS[BLOOM_PRESET];
 // ----------------------------------------------------------------------------
 const GLASS_PROFILE = [
   new THREE.Vector2(0.0, 0.0), //  1 台座の中心（底）
-  new THREE.Vector2(0.9, 0.0), //  2 台座の外周（底）
-  new THREE.Vector2(0.9, 0.06), //  3 台座のふちの厚み
-  new THREE.Vector2(0.12, 0.14), //  4 台座の上面 → ステムへ絞り込む
-  new THREE.Vector2(0.08, 1.2), //  5 ステム（細い脚）を上へ
-  new THREE.Vector2(0.1, 1.32), //  6 ボウルの付け根（外側）
-  new THREE.Vector2(1.5, 2.58), //  7 V字に開いていく（標準的な開き・外側）
-  new THREE.Vector2(1.52, 2.66), //  8 リム（飲み口）外側
-  new THREE.Vector2(1.46, 2.64), //  9 リム内側（ここから内側を下りていく）
-  new THREE.Vector2(0.06, 1.45), // 10 ボウル内側の底へ
-  new THREE.Vector2(0.0, 1.45), // 11 内側の底を中心で閉じる
+  new THREE.Vector2(0.72, 0.0), //  2 台座の外周（底）※リム径の約半分＝参考画像の比率
+  new THREE.Vector2(0.7, 0.04), //  3 台座のふち（薄い）
+  new THREE.Vector2(0.12, 0.2), //  4 台座からステムへドーム状に立ち上げる
+  new THREE.Vector2(0.09, 0.24), //  5 ステム下端
+  new THREE.Vector2(0.085, 1.42), //  6 ステム上端（長くスリム・ごくわずかに細く）
+  new THREE.Vector2(0.1, 1.5), //  7 ボウルの付け根（外側・小さなふくらみ）
+  new THREE.Vector2(1.45, 2.82), //  8 直線のV字でリムへ（半角≒46°の広めV・外側）
+  new THREE.Vector2(1.47, 2.88), //  9 リム（飲み口）外側
+  new THREE.Vector2(1.42, 2.86), // 10 リム内側（ここから内側を下りていく）
+  new THREE.Vector2(0.06, 1.55), // 11 ボウル内側の底へ
+  new THREE.Vector2(0.0, 1.55), // 12 内側の底を中心で閉じる
 ];
 
 // 液体の輪郭線は、ボウル内側の「底」と「リム」をなぞって作る。
 // グラスの内側と同じ傾きに沿わせ、上面（液面）は LIQUID_FILL の高さで水平に閉じる。
-const BOWL_INNER_BOTTOM = new THREE.Vector2(0.06, 1.45); // ボウル内側の底（GLASS_PROFILE の点10と一致）
-const BOWL_INNER_RIM = new THREE.Vector2(1.46, 2.64); // ボウル内側のリム（点9と一致）
+const BOWL_INNER_BOTTOM = new THREE.Vector2(0.06, 1.55); // ボウル内側の底（GLASS_PROFILE の点11と一致）
+const BOWL_INNER_RIM = new THREE.Vector2(1.42, 2.86); // ボウル内側のリム（点10と一致）
 // 底→リムを LIQUID_FILL(0〜1) で内分した位置が、注いだ液面の高さと半径になる。
 const fillY =
   BOWL_INNER_BOTTOM.y + (BOWL_INNER_RIM.y - BOWL_INNER_BOTTOM.y) * LIQUID_FILL;
@@ -176,7 +177,7 @@ const camera = new THREE.PerspectiveCamera(
 );
 // カメラの位置。グラスは台座(y=0)からリム(y≒2.66)まで縦に背が高いので、
 // 少し上・手前から、グラス全体が画面に収まる距離に置く。
-camera.position.set(0, 2.4, 7);
+camera.position.set(0, 2.6, 7.2);
 
 // ============================================================================
 // 4. Light（光源） — 最低2種類
@@ -272,7 +273,7 @@ const grid = new THREE.GridHelper(10, 10, 0x888888, 0x888888);
 // X軸まわりに90度回して垂直に立たせ、グラスの後ろ(z=-4)に配置する。
 grid.rotation.x = Math.PI / 2; // 90度（ラジアン）回転して縦向きに
 grid.position.z = -4; // カメラから見てグラスの奥へ下げる
-grid.position.y = 1.3; // グラスの高さに合わせて少し持ち上げる
+grid.position.y = 1.4; // グラスの高さに合わせて少し持ち上げる
 scene.add(grid);
 
 // ============================================================================
@@ -283,7 +284,7 @@ scene.add(grid);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; // 慣性をつけ、ドラッグを離しても滑らかに止まる
 // グラスは縦に背が高いので、中心(y=0)ではなくボウル寄り(y=1.4)を見つめながら回す。
-controls.target.set(0, 1.4, 0);
+controls.target.set(0, 1.5, 0);
 
 // ============================================================================
 // 6.5 後処理（ポストプロセス）— ステップ5：bloom
