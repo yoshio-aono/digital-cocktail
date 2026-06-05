@@ -78,7 +78,7 @@ const BG_BOTTOM_COLOR = '#868698'; // 下：ほんのり明るい（グラデー
 //   ・maxblur  … ボケの最大の強さ（大きすぎると背景が溶ける）
 // ----------------------------------------------------------------------------
 const USE_DOF = true; // ← false で DOF オフ（背景パターンだけ見たいとき）
-const DOF_PRESET = 2; // ← 1 / 2 / 3 で強さ切替
+const DOF_PRESET = 3; // ← 1 / 2 / 3 で強さ切替
 const FOCUS_DISTANCE = 8.5; // ピントの合う距離（カメラ〜グラス）
 const DOF_PRESETS = {
   1: { aperture: 0.0001, maxblur: 0.006 }, // 控えめ
