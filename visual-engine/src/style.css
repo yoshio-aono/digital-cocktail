@@ -1,0 +1,13 @@
+/* 画面いっぱいに3Dを表示するための最小限のスタイル。
+   余白(margin)を消し、canvas をブロック要素にして隙間をなくす。 */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden; /* スクロールバーを出さない */
+  background: #dfe2e8; /* Three.js の背景色に合わせる（描画前のチラつき防止） */
+}
+
+canvas {
+  display: block; /* canvas 下の余白を消す */
+}
