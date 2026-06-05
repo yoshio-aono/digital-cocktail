@@ -5,7 +5,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden; /* スクロールバーを出さない */
-  background: #dfe2e8; /* Three.js の背景色に合わせる（描画前のチラつき防止） */
+  background: #14141a; /* Three.js の背景色(BG_COLOR)に合わせる（描画前のチラつき防止） */
 }
 
 canvas {
