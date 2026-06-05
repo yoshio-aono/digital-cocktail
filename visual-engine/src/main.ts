@@ -92,23 +92,23 @@ const bloom = BLOOM_PRESETS[BLOOM_PRESET];
 // ----------------------------------------------------------------------------
 const GLASS_PROFILE = [
   new THREE.Vector2(0.0, 0.0), //  1 台座の中心（底）
-  new THREE.Vector2(0.72, 0.0), //  2 台座の外周（底）※リム径の約半分＝参考画像の比率
+  new THREE.Vector2(0.72, 0.0), //  2 台座の外周（底）※台座半径0.72＝ボウル最大幅の基準
   new THREE.Vector2(0.7, 0.04), //  3 台座のふち（薄い）
   new THREE.Vector2(0.12, 0.2), //  4 台座からステムへドーム状に立ち上げる
   new THREE.Vector2(0.09, 0.24), //  5 ステム下端
-  new THREE.Vector2(0.085, 1.42), //  6 ステム上端（長くスリム・ごくわずかに細く）
-  new THREE.Vector2(0.1, 1.5), //  7 ボウルの付け根（外側・小さなふくらみ）
-  new THREE.Vector2(1.45, 2.82), //  8 直線のV字でリムへ（半角≒46°の広めV・外側）
-  new THREE.Vector2(1.47, 2.88), //  9 リム（飲み口）外側
-  new THREE.Vector2(1.42, 2.86), // 10 リム内側（ここから内側を下りていく）
-  new THREE.Vector2(0.06, 1.55), // 11 ボウル内側の底へ
-  new THREE.Vector2(0.0, 1.55), // 12 内側の底を中心で閉じる
+  new THREE.Vector2(0.085, 1.436), //  6 ステム上端（長さ1.233→1.196＝さらに3%短く）
+  new THREE.Vector2(0.1, 1.516), //  7 ボウルの付け根（外側・小さなふくらみ）
+  new THREE.Vector2(0.887, 2.698), //  8 直線のV字でリムへ（外側）
+  new THREE.Vector2(0.907, 2.758), //  9 リム（飲み口）外側＝最大幅0.907
+  new THREE.Vector2(0.857, 2.738), // 10 リム内側（ここから内側を下りていく）
+  new THREE.Vector2(0.06, 1.566), // 11 ボウル内側の底へ
+  new THREE.Vector2(0.0, 1.566), // 12 内側の底を中心で閉じる
 ];
 
 // 液体の輪郭線は、ボウル内側の「底」と「リム」をなぞって作る。
 // グラスの内側と同じ傾きに沿わせ、上面（液面）は LIQUID_FILL の高さで水平に閉じる。
-const BOWL_INNER_BOTTOM = new THREE.Vector2(0.06, 1.55); // ボウル内側の底（GLASS_PROFILE の点11と一致）
-const BOWL_INNER_RIM = new THREE.Vector2(1.42, 2.86); // ボウル内側のリム（点10と一致）
+const BOWL_INNER_BOTTOM = new THREE.Vector2(0.06, 1.566); // ボウル内側の底（GLASS_PROFILE の点11と一致）
+const BOWL_INNER_RIM = new THREE.Vector2(0.857, 2.738); // ボウル内側のリム（点10と一致）
 // 底→リムを LIQUID_FILL(0〜1) で内分した位置が、注いだ液面の高さと半径になる。
 const fillY =
   BOWL_INNER_BOTTOM.y + (BOWL_INNER_RIM.y - BOWL_INNER_BOTTOM.y) * LIQUID_FILL;
