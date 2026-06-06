@@ -35,6 +35,18 @@ import './style.css';
 import { createLiquidUI } from './liquid-ui';
 
 // ----------------------------------------------------------------------------
+// ★ スマホ判定（軽い判定：画面幅のみ）★ — モバイル品質プリセットの土台
+//   768px以下をモバイル扱いにする。起動時に1回だけ評価される定数。
+//   注意：PCでウィンドウを狭めても発火するが、検証は実機メインなので今回はこれで十分。
+//   この IS_MOBILE が true のときだけ、後述の「品質を一段落とす」設定が選ばれる。
+//   ※処理は分岐させない。各定数の右辺を三項演算子で「値だけ」切り替える方針。
+// ----------------------------------------------------------------------------
+const IS_MOBILE = window.innerWidth <= 768;
+// 確認用ログ（実機/エミュレーションで IS_MOBILE と解像度上限が効いているか目視する）。
+// 不要になったらこの1行は削除してよい。
+console.log('IS_MOBILE:', IS_MOBILE);
+
+// ----------------------------------------------------------------------------
 // ★ 液体の見た目の設定（将来ここに color-engine の出力を流し込む）★
 //   色は 0〜255 の rgb で持っておき、Three.js 用に 0〜1 へ変換して使う。
 //   この2つの定数を書き換えるだけで液体の色と透け具合が変わる。
@@ -89,6 +101,11 @@ const DOF_PRESETS = {
   3: { aperture: 0.0004, maxblur: 0.016 }, // 強め
 } as const;
 const dof = DOF_PRESETS[DOF_PRESET];
+// ★モバイル品質プリセット(2)：DOF（被写界深度）のボケ量を弱める★
+//   maxblur を下げるとボケが軽くなり負荷も下がる（DOF自体はオフにしない）。
+//   PCは現行プリセット値(dof.maxblur)をそのまま使う＝従来と1ビットも変わらない。
+//   スマホは固定で軽いボケ量(0.003)にして負荷を抑える。
+const DOF_MAXBLUR = IS_MOBILE ? 0.003 : dof.maxblur;
 
 // ----------------------------------------------------------------------------
 // ★ 全体の明るさ（露出）★
@@ -108,7 +125,11 @@ const EXPOSURE = 0.7;
 //   ・1.5… さらに軽く（負荷重視）。見た目は少しだけ甘くなる
 //   ・Infinity … 上限なし（常に端末のDPRそのまま＝最高画質・最重）
 //   renderer と composer(後処理) の両方に同じ値を効かせる。
-const MAX_PIXEL_RATIO = 2;
+//
+//   ★モバイル品質プリセット(1)：解像度上限を一段下げる★
+//   スマホ(IS_MOBILE)では 1.5 に下げて描画ピクセル数を減らし負荷を軽くする。
+//   PC(IS_MOBILE===false)は従来どおり 2＝デグレなし。
+const MAX_PIXEL_RATIO = IS_MOBILE ? 1.5 : 2;
 // 端末のDPRと上限の小さい方を採用（高DPR端末だけ頭打ちになる）。
 const PIXEL_RATIO = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
 
@@ -128,6 +149,10 @@ const BLOOM_PRESETS = {
   3: { strength: 0.75, radius: 0.6, threshold: 0.3 }, // 華やか
 } as const;
 const bloom = BLOOM_PRESETS[BLOOM_PRESET];
+// ★モバイル品質プリセット(3)：bloom（光のにじみ）の強さを少し弱める★
+//   strength を下げると発光処理が軽くなる。PCは現行プリセット値(bloom.strength)
+//   をそのまま使う＝従来と完全に同一。スマホは固定で控えめ(0.10)にする。
+const BLOOM_STRENGTH = IS_MOBILE ? 0.1 : bloom.strength;
 
 // ----------------------------------------------------------------------------
 // ★ 液体の縦グラデ（吸光度）★ — ステップ3
@@ -887,7 +912,7 @@ composer.addPass(new RenderPass(scene, camera)); // (1) 土台の絵
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight), // 効果をかける解像度
-  bloom.strength, // 強さ（プリセットから）
+  BLOOM_STRENGTH, // 強さ（PCはプリセット値／スマホは一段弱め）
   bloom.radius, // にじみ半径
   bloom.threshold, // 光り始める明るさの閾値
 );
@@ -902,7 +927,7 @@ if (USE_DOF) {
   bokehPass = new BokehPass(scene, camera, {
     focus: FOCUS_DISTANCE, // ピントが合う距離（カメラ〜グラス＝約8.5）
     aperture: dof.aperture, // 絞り（大きいほど背景が強くボケる）
-    maxblur: dof.maxblur, // ボケの最大の強さ
+    maxblur: DOF_MAXBLUR, // ボケの最大の強さ（PCはプリセット値／スマホは一段弱め）
   });
   composer.addPass(bokehPass);
 }
