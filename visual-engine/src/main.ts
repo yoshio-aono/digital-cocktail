@@ -30,6 +30,9 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import './style.css';
+// 液体の色・濃さを手で操作するUI（HTML+CSS+canvasの自作パネル）。
+// 値が変わるたびに setLiquidAppearance() を呼んで3Dへ反映する。
+import { createLiquidUI } from './liquid-ui';
 
 // ----------------------------------------------------------------------------
 // ★ 液体の見た目の設定（将来ここに color-engine の出力を流し込む）★
@@ -39,7 +42,7 @@ import './style.css';
 const LIQUID_COLOR = { r: 200, g: 50, b: 110 }; // マゼンタ系
 // 透明度。小さいほど透けるが、その分だけ後ろの色が混ざって液体の色は薄くなる。
 // 値が大きいほど不透明で色が濃く出る（後ろの格子は透けにくくなる）。
-const LIQUID_OPACITY = 0.65; // 0=完全に透明 / 1=不透明
+const LIQUID_OPACITY = 0.9; // 0=完全に透明 / 1=不透明
 
 // ----------------------------------------------------------------------------
 // ★ 液面の高さ（どこまで注ぐか）★
@@ -64,8 +67,8 @@ const BACKGROUND_PRESET = 1; // ← ここを 1 / 2 / 3 に変えて見比べる
 //   落としているため、背景もそのカーブで強く暗くなる。そのまま暗い色を入れると
 //   画面では真っ黒に潰れてグラデーションが見えない。そこで「画面で暗いグレーに
 //   見える」ように、ソースの色はあえて明るめ(中間グレー寄り)に作ってある。
-const BG_TOP_COLOR = '#3a3a48'; // 上：暗め（画面では一番暗く見える）
-const BG_BOTTOM_COLOR = '#868698'; // 下：ほんのり明るい（グラデーションの明側）
+const BG_TOP_COLOR = '#070709'; // 上：ほぼ黒（ピンライトのムード優先でさらに暗く）
+const BG_BOTTOM_COLOR = '#131318'; // 下：ごくわずかに明るい（暗い縦グラデ）
 
 // ----------------------------------------------------------------------------
 // ★ 被写界深度(DOF) ★ — ステップ7
@@ -78,7 +81,7 @@ const BG_BOTTOM_COLOR = '#868698'; // 下：ほんのり明るい（グラデー
 //   ・maxblur  … ボケの最大の強さ（大きすぎると背景が溶ける）
 // ----------------------------------------------------------------------------
 const USE_DOF = true; // ← false で DOF オフ（背景パターンだけ見たいとき）
-const DOF_PRESET = 3; // ← 1 / 2 / 3 で強さ切替
+const DOF_PRESET = 1; // ← 1 / 2 / 3 で強さ切替
 const FOCUS_DISTANCE = 8.5; // ピントの合う距離（カメラ〜グラス）
 const DOF_PRESETS = {
   1: { aperture: 0.0001, maxblur: 0.006 }, // 控えめ
@@ -94,7 +97,20 @@ const dof = DOF_PRESETS[DOF_PRESET];
 //   なめらかに圧縮するのがトーンマッピング。EXPOSURE を下げるほど全体が暗くなる。
 //   （1.0=標準 / 0.5前後=暗め。ここを変えるだけで画面全体の明るさを調整できる）
 // ----------------------------------------------------------------------------
-const EXPOSURE = 0.35;
+const EXPOSURE = 0.7;
+
+// ----------------------------------------------------------------------------
+// ★ 最大ピクセル比（描画解像度の上限）★ — スマホでの計算量コントロール
+//   実際に計算するピクセル数 ＝ (CSS幅×CSS高さ) × pixelRatio²。
+//   スマホは devicePixelRatio が 2〜3 と高く、そのまま使うと実ピクセルが激増して重い
+//   （iPhone等は DPR3＝9倍）。ここで上限を付けると、高精細端末でも描画解像度を抑えられる。
+//   ・2  … 画質と負荷のバランス（推奨）。DPR3端末で実ピクセルは約0.44倍に減る
+//   ・1.5… さらに軽く（負荷重視）。見た目は少しだけ甘くなる
+//   ・Infinity … 上限なし（常に端末のDPRそのまま＝最高画質・最重）
+//   renderer と composer(後処理) の両方に同じ値を効かせる。
+const MAX_PIXEL_RATIO = 2;
+// 端末のDPRと上限の小さい方を採用（高DPR端末だけ頭打ちになる）。
+const PIXEL_RATIO = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
 
 // ----------------------------------------------------------------------------
 // ★ bloom（光のにじみ）プリセット切り替え ★
@@ -107,7 +123,7 @@ const EXPOSURE = 0.35;
 // ----------------------------------------------------------------------------
 const BLOOM_PRESET = 1; // ← ここを 1 / 2 / 3 に変えて見比べる
 const BLOOM_PRESETS = {
-  1: { strength: 0.25, radius: 0.4, threshold: 0.6 }, // 控えめ
+  1: { strength: 0.15, radius: 0.4, threshold: 2.2 }, // 控えめ（閾値↑：濁った液面の“面の明るさ”は光らせず、グラスの鋭いハイライトだけ拾う）
   2: { strength: 0.45, radius: 0.5, threshold: 0.45 }, // 標準
   3: { strength: 0.75, radius: 0.6, threshold: 0.3 }, // 華やか
 } as const;
@@ -208,6 +224,67 @@ function makeBackgroundTexture(preset: number): THREE.Texture {
 }
 
 // ----------------------------------------------------------------------------
+// ★ 木目テクスチャを作る関数 ★ — 木の机用
+//   背景と同じく canvas に「絵」を描いて Three.js のテクスチャにする方式。
+//   外部の画像ファイルを使わず、コードだけで木目を生成する（依存を増やさない）。
+//   作り方：茶色のベース → 「横方向(左右)」に伸びる細い帯を sin＋擬似乱数で明暗を
+//   つけて何本も描く（横向きの木目の縞）→ 板の継ぎ目の暗い横線を数本入れる。
+//   これを机のplaneにUVマッピングすると、カメラから見て木目が横向きに走る。
+//   ※明暗のコントラストは控えめにして「穏やかな木目」にしている。
+// ----------------------------------------------------------------------------
+function makeWoodTexture(): THREE.Texture {
+  const W = 512;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  // ベースの茶色で塗りつぶす
+  ctx.fillStyle = '#6a4428';
+  ctx.fillRect(0, 0, W, H);
+
+  // 木目の縞：高さ1pxの「横帯」を、明暗を変えながら縦方向に積み上げて全面を描く。
+  //   → 帯が左右に伸びるので、木目が横向きに見える。
+  const base = [120, 76, 44]; // 木の基準色(RGB)
+  for (let y = 0; y < H; y++) {
+    // 複数の sin を重ねてゆるやかな縞模様を作る（縦位置 y で変化）
+    const grain =
+      Math.sin(y * 0.15) * 0.5 +
+      Math.sin(y * 0.37 + 1.3) * 0.3 +
+      Math.sin(y * 0.91) * 0.2;
+    // 擬似乱数（細かいザラつき）。0〜1 の範囲に収める
+    const n = Math.abs(Math.sin(y * 12.9898) * 43758.5453) % 1;
+    // 明るさ係数。さらに穏やかに、振れ幅をごく小さく（おおむね 0.92〜1.08）
+    const shade = 0.97 + 0.07 * grain + (n - 0.5) * 0.04;
+    const r = Math.min(255, Math.floor(base[0] * shade));
+    const g = Math.min(255, Math.floor(base[1] * shade));
+    const b = Math.min(255, Math.floor(base[2] * shade));
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(0, y, W, 1);
+  }
+
+  // 板の継ぎ目（暗い横線）を数本入れて「板を並べた机」に見せる。
+  //   穏やかにするため線は細め・薄め。
+  ctx.strokeStyle = 'rgba(30,18,8,0.18)';
+  ctx.lineWidth = 1.5;
+  for (const seam of [70, 175, 300, 420]) {
+    ctx.beginPath();
+    ctx.moveTo(0, seam);
+    ctx.lineTo(W, seam);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // タイル状に繰り返して机全体に敷き詰める（穏やかに見せるため繰り返しは控えめ）
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 2);
+  return texture;
+}
+
+// ----------------------------------------------------------------------------
 // ★ マティーニグラスの輪郭線（profile）★ — ステップ6
 //   マティーニグラスは「回転対称」（中心軸まわりにくるっと回した形）なので、
 //   縦の断面の輪郭を 2D の点列で定義し、LatheGeometry で軸まわりに回して立体化する。
@@ -220,10 +297,10 @@ function makeBackgroundTexture(preset: number): THREE.Texture {
 const GLASS_PROFILE = [
   new THREE.Vector2(0.0, 0.0), //  1 台座の中心（底）
   new THREE.Vector2(0.72, 0.0), //  2 台座の外周（底）※台座半径0.72＝ボウル最大幅の基準
-  new THREE.Vector2(0.7, 0.04), //  3 台座のふち（薄い）
+  new THREE.Vector2(0.7, 0.2), //  3 台座のふち（厚み 0.1→0.2＝さらに厚く・重底ガラス風）
   new THREE.Vector2(0.12, 0.2), //  4 台座からステムへドーム状に立ち上げる
   new THREE.Vector2(0.09, 0.24), //  5 ステム下端
-  new THREE.Vector2(0.085, 1.436), //  6 ステム上端（長さ1.233→1.196＝さらに3%短く）
+  new THREE.Vector2(0.085, 1.436), //  6 ステム上端
   new THREE.Vector2(0.1, 1.516), //  7 ボウルの付け根（外側・小さなふくらみ）
   new THREE.Vector2(0.887, 2.698), //  8 直線のV字でリムへ（外側）
   new THREE.Vector2(0.907, 2.758), //  9 リム（飲み口）外側＝最大幅0.907
@@ -257,7 +334,7 @@ const LIQUID_PROFILE = [
 // ============================================================================
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight); // 画面サイズに合わせる
-renderer.setPixelRatio(window.devicePixelRatio); // 高精細ディスプレイ対応
+renderer.setPixelRatio(PIXEL_RATIO); // 高精細ディスプレイ対応（上限 MAX_PIXEL_RATIO 付き）
 // トーンマッピング：明るい部分(ハイライト)を純白に飛ばさず、なめらかに圧縮する。
 // ACESFilmic は映画やゲームで定番の自然な見え方。これで液体やグラスの強い反射が
 // 255 に張り付くのを防ぎ、色が残る。EXPOSURE で全体の明るさを最終調整する。
@@ -312,25 +389,65 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 1.7, 8.5);
 
 // ============================================================================
-// 4. Light（光源） — 最低2種類
-//    半透明マテリアルは光の当たり方で立体感が出るため、光は必須。
-//    （環境マップも光源として効くが、陰影づけのため通常の光も併用する）
+// 4. Light（光源） — ピンスポット中心の暗めライティング（参考画像のムード）
+//    「暗い空間に、上から絞ったスポットライト(ピンライト)でグラスだけを照らす」構成。
+//    周囲を照らす光(環境光・半球光・方向光)を大きく絞って全体を暗くし、主役の光は
+//    上からの SpotLight に任せる。これでグラスだけが闇に浮かび上がる。
 // ============================================================================
-// 環境光：空間全体をムラなく柔らかく照らす（影の中も真っ暗にしない）
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.15); // 色, 強さ
+// ★ ピンライトの強さ（明るすぎたら下げる／暗ければ上げる）★
+//   SpotLight は物理的な明るさ単位なので、距離減衰のぶん大きめの値が必要。
+const PIN_LIGHT_INTENSITY = 400;
+
+// 環境光：ごく弱く。完全な黒つぶれを防ぐ最低限だけ残す。さらに暗く。
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.0); // 色, 強さ
 scene.add(ambientLight);
 
-// 方向光：太陽のように一方向から差す平行光。陰影=立体感を作る主役。
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
-directionalLight.position.set(5, 8, 5); // どこから差すか（右上手前）
+// 方向光：正面からのごく弱いフィル光（ステムや台座が真っ黒に潰れない程度）。さらに暗く。
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.0);
+directionalLight.position.set(2, 4, 6); // 手前やや上から
 scene.add(directionalLight);
 
-// 半球光：上(空色)と下(地色)から全方向を均等に照らす光。
-// これがないと方向光は上からだけなので、下から見上げたとき液体の面が影になって
-// 暗くくすみ、色が灰色っぽく見えてしまう。全方向を照らすことで、どの角度でも
-// 液体の色がはっきり出るようにする。
-const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.2);
+// 半球光：全体の最低限の起こし光。暗さを優先してさらに弱める。
+const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x222222, 0.0);
 scene.add(hemisphereLight);
+
+// ★ ピンスポット（上からの主役の光）★
+//   SpotLight(色, 強さ, 届く距離, 円錐の半角, ふちのぼかし, 距離減衰)。
+//   ・angle 小 = 絞った細いスポット ／ penumbra 大 = ふちが柔らかい
+//   ・decay=2 で物理的に自然な距離減衰。そのぶん intensity は大きめにする。
+const spotLight = new THREE.SpotLight(
+  0xffffff,
+  PIN_LIGHT_INTENSITY,
+  0, // 距離0＝届く範囲の打ち切りなし
+  0.12, // 円錐の半角(ラジアン)。小さいほど細いスポット → さらに狭く絞った
+  0.4, // penumbra：ふちのぼかし(0=くっきり 〜 1=ふんわり)
+  2, // decay：距離による減衰(2=物理的に自然)
+);
+// 光源を狙い先より手前(z=+0.75)に置くと、光の軸は「手前→奥下」方向に傾く。
+// 傾き量は元(z差1.5)の半分(z差0.75)。鉛直からの傾きは約6°。
+spotLight.position.set(0, 9, 0.75); // グラスの真上やや手前から
+spotLight.target.position.set(0, 1.9, 0); // グラスのボウル付近を狙う
+scene.add(spotLight);
+scene.add(spotLight.target); // target も scene に入れないと向きが反映されない
+
+// ★ ステム用スポット（復活）★
+//   ・光源：ステムの一番下の右側から → 右(+X)・低い位置(y≈0.24)。
+//   ・狙い：ステムの「上から1/4」の高さの左側外端。ステム y=0.24〜1.436 → 1.436-1.196/4≈1.137。
+//     その高さのステム半径≈0.086 なので左外端 = (-0.086, 1.137)。右下→左上へ斜めに横切る。
+//   ・angle 0.04＝一番細い／intensity＝一番強い。
+const STEM_LIGHT_INTENSITY = 800; // 一番強く（眩しすぎたら下げる）
+const stemSpot = new THREE.SpotLight(
+  0xffffff,
+  STEM_LIGHT_INTENSITY,
+  0, // 距離0＝打ち切りなし
+  0.04, // 円錐の半角(ラジアン)。0.06より小さい＝一番細いスポット
+  0.2, // penumbra：ふちのぼかし（細く鋭いビームなので小さめ）
+  2, // decay：物理的な距離減衰
+);
+stemSpot.position.set(3, 0.24, 0); // ステム最下の右側から
+stemSpot.target.position.set(-0.086, 1.137, 0); // ステム上から1/4・左側の外端を狙う
+scene.add(stemSpot);
+scene.add(stemSpot.target); // target も scene に入れないと向きが反映されない
 
 // ============================================================================
 // 5. Mesh（物体） — マティーニグラスと液体
@@ -342,6 +459,38 @@ scene.add(hemisphereLight);
 // LatheGeometry(輪郭線の点列, 円周の分割数)。分割数を増やすほど滑らかな回転体になる。
 const glassGeometry = new THREE.LatheGeometry(GLASS_PROFILE, 64);
 
+// 部位ごとに表面のザラつき(roughness)を変えるためのテクスチャ（roughnessMap）。
+//   グラスは1つの回転体＋1マテリアルなので、形を分割せずに「高さ方向のグラデ画像」で
+//   部位ごとの粗さを切り替える。最終 roughness = material.roughness(1.0) × このテクスチャの明るさ。
+//   3段構成：
+//   ・底（台座）  ＝灰 #4d4d4d(0.3倍)→ 0.30
+//   ・ステム      ＝白 #ffffff(1.0倍)→ 1.00（完全マット・最大）
+//   ・ボウル      ＝暗灰 #262626(0.15倍)→ 0.15（クリアなまま）
+//   LatheGeometry の縦方向UV(v)は輪郭点の番号に比例（点0=底→v0、点11=最上→v1）。
+//   底=点0〜3(v≈0〜0.30)／ステム=点4〜5(v≈0.32〜0.50)／ボウル=点6以降(v>0.50)。
+//   CanvasTexture は既定で上下反転(flipY=true)＝画像の「下」が v0(底)。画像の縦位置 p(上0→下1)
+//   は p=1-v。よって 下=底、中=ステム、上=ボウル の順に塗る。
+function makeGlassRoughnessMap(): THREE.Texture {
+  const W = 8;
+  const H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, H); // 上(p0,row0)→下(p1,rowH)
+  grad.addColorStop(0.0, '#262626'); // 上＝ボウル：暗灰(0.15倍→0.15)
+  grad.addColorStop(0.48, '#262626'); // v>0.50 はボウル
+  grad.addColorStop(0.52, '#ffffff'); // v≈0.50：ステム(白→1.0)へ切替
+  grad.addColorStop(0.67, '#ffffff'); // ステムの白を維持
+  grad.addColorStop(0.71, '#4d4d4d'); // v≈0.30：底(灰0.3倍→0.3)へ切替
+  grad.addColorStop(1.0, '#4d4d4d'); // 下＝底：灰
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  const tex = new THREE.CanvasTexture(canvas);
+  // 色ではなくデータ（粗さ係数）なので sRGB 変換はしない（既定の NoColorSpace のまま）。
+  return tex;
+}
+
 // 器のマテリアル（ステップ1〜5の透明感をそのまま引き継ぐ）。
 // ※当初は transmission（物理的な光の透過）でガラスらしさを出していたが、
 //   transmission は「ガラスの向こうの背景」を取り込む特殊描画のため、
@@ -349,12 +498,33 @@ const glassGeometry = new THREE.LatheGeometry(GLASS_PROFILE, 64);
 //   抜けてしまう。そこで transmission は使わず、ただの薄い半透明シェルにする。
 //   こうすると普通のアルファ合成になり、器越しでも液体の色がそのまま透ける。
 const glassMaterial = new THREE.MeshPhysicalMaterial({
-  color: 0xffffff,
+  // うっすら寒色（青み）を付けてクリスタルガラスらしさを出す。真っ白(0xffffff)だと
+  // 反射が白っぽく濁って見えるため、ごく薄い水色にして透明感を演出。
+  color: 0xb4cfff,
   transparent: true, // 透明処理を有効化
-  opacity: 0.08, // うっすら存在が分かる程度（白い器が前にあると液体色が白っぽく濁るので薄め）
-  roughness: 0.1, // 表面のザラつき。低いほどツルッとして映り込みがくっきり
+  // 器の白い膜を薄くして、中の液体（マゼンタ）の色がより強く透けるようにする。
+  opacity: 0.05, // 0.08 → 0.05 に下げた（液体色を強調）
+  // 物理的な光の透過。1.0＝完全に透過する本物のガラス。背景や奥の物が屈折して見える。
+  transmission: 0.95,
+  // 屈折率。ガラス=1.5前後、クリスタル/鉛ガラスは高め。1.6 で屈折が強めに出る。
+  ior: 1.6,
+  // 透過光が器の厚みを通る間にどれだけ吸収・着色されるか。距離が短いほど色が濃くつく。
+  attenuationDistance: 4,
+  // 透過光に付く色。淡い青にして、ガラス越しにほんのり青みが見えるようにする。
+  attenuationColor: new THREE.Color(0xbcd6ff),
+  // 表面のザラつき。0に近いほど鏡のようにツルッとして、映り込み・ハイライトが
+  // くっきり鋭くなる＝「ぴかぴか感」。ここは「最大値」で、下の roughnessMap で部位ごとに
+  // 下げる。ステム＝1.0（最大・完全マット）／底＝1.0×0.3＝0.3／ボウル＝1.0×0.15＝0.15。
+  roughness: 1.0,
+  // 部位ごとに粗さを変えるマップ（底・ステムだけザラつかせる）。値は roughness に掛け算。
+  roughnessMap: makeGlassRoughnessMap(),
   metalness: 0.0, // 金属ではないので0
-  envMapIntensity: 0.3, // 環境マップ（映り込み）の強さ。大きいほど周囲がはっきり映る（白飛び防止で控えめに）
+  // 環境マップ（映り込み）の強さ。白っぽさをさらに抑えるため 0.7 → 0.2 に下げた。
+  envMapIntensity: 0.2,
+  // ガラスの上に張った透明なニス層のような「クリアコート」。本体の透明度(opacity 0.05)
+  // とは別レイヤーで、表面に鋭い反射ハイライトを足せる。
+  clearcoat: 0.3, // クリアコートの強さ（0〜1）。白反射を抑えるため 0.5 → 0.3 に下げた
+  clearcoatRoughness: 0.03, // コート表面のザラつき。低いほど反射がシャープ
   // LatheGeometry は輪郭を回しただけの「片面ポリゴン」になりがちなので、
   // 両面描画にして内側の面も見えるようにする（中の液体越しに器の内壁が見える）。
   side: THREE.DoubleSide,
@@ -377,9 +547,21 @@ const liquidMaterial = new THREE.MeshPhysicalMaterial({
   ),
   transparent: true,
   opacity: LIQUID_OPACITY, // ★冒頭の定数で透け具合を制御（小さいほど透ける）
-  roughness: 0.25, // 液面のザラつき。上げると白い鏡面ハイライトが弱まり液体色が出やすい
+  roughness: 0.02, // 液面のザラつき。0に近いほどツルッと鏡面（液面をなめらかに）
   metalness: 0.0,
   envMapIntensity: 0.3, // 液面への映り込みの強さ（白飛び防止で控えめに）
+  // 物理的な光の透過を有効化。背景や奥が液体越しに屈折して見える本物の液体。
+  transmission: 0.98,
+  // 透過光が液中を進む間に吸収されて残る色（マゼンタ）。これを入れないと無色になる。
+  attenuationColor: new THREE.Color(
+    LIQUID_COLOR.r / 255,
+    LIQUID_COLOR.g / 255,
+    LIQUID_COLOR.b / 255,
+  ),
+  // 色がどれだけの距離で吸収されるか。小さいほど濃い。色を強く出すため 6→2 に短縮。
+  attenuationDistance: 2,
+  // 透過計算で「光が液中を通る距離」の目安。大きいほど吸収が効いて色が濃くなる（4→6）。
+  thickness: 6,
   // 両面描画。これがないと外向きの面だけ描かれ、下から器の中を見上げたとき
   // 液体の内側（背面）が素通しになって色が消える。両面にすると全方向で色が出る。
   side: THREE.DoubleSide,
@@ -387,9 +569,6 @@ const liquidMaterial = new THREE.MeshPhysicalMaterial({
   // 互いに描画を捨て合うのを防ぎ、手前と奥の面をすべて重ねて描けるようにする
   // （透明オブジェクトの定番設定。これがないと見る角度で面が欠ける）。
   depthWrite: false,
-  // ※ transmission（物理的な光の透過）は今は使わない。
-  //   transmission を入れると透け具合をそちらが支配し、opacity が効かなくなるため、
-  //   ここでは opacity による素直なアルファ透過で透明度を制御する。
 });
 // --- 縦グラデ（吸光度）の差し込み — ステップ3 -----------------------------
 //   液体の高さ範囲（底のY〜液面のY）を、メッシュのバウンディングボックスから取得する。
@@ -440,6 +619,243 @@ const liquid = new THREE.Mesh(liquidGeometry, liquidMaterial);
 // 液体の輪郭線はすでにボウル内側の高さ(y=1.45〜)で作っているので、位置調整は不要。
 scene.add(liquid);
 
+// ============================================================================
+// ★★ 中継関数 setLiquidAppearance（最重要・将来の color-engine 接続点）★★
+//   UI も、将来の mixCocktail() も、液体の見た目を変えたいときは「必ずこの関数だけ」
+//   を呼ぶ。マテリアルを直接いじる場所を1か所に集約しておくと、
+//   あとで color-engine をつなぐとき “ここを呼ぶだけ” で済む。
+//
+//   引数：
+//     rgb       … { r, g, b } 各 0〜255（人にわかりやすい色の表現）
+//     density   … 0.0〜1.0 の「濃さ」。0=薄い（色が淡い）/ 1=濃い（色が深い）
+//     turbidity … 0.0〜1.0 の「濁り」。0=澄んだ透明 / 1=ミルクのように白く不透明
+//                 （省略時は 0＝従来どおりの澄んだ液体。後方互換のためデフォルト値あり）
+//
+//   density → attenuationDistance への変換について：
+//     attenuationDistance は「光が液中を進んで色が吸収されるまでの距離」。
+//     小さいほど早く吸収される＝色が濃い。つまり density とは逆向きなので、
+//     density=0 のとき遠く(MAX=薄い)、density=1 のとき近く(MIN=濃い) に線形変換する。
+//
+//   turbidity（濁り＝散乱）の近似について：
+//     液体の見た目は物理的に「吸収」と「散乱」の2軸。今までは吸収だけ＝透き通ったまま
+//     色がつくモデルだった。濁り（ミルク・カルーア・濁った果汁）は微粒子による散乱で、
+//     向こうが透けず内側から白っぽくなる現象。フルSSSは重いので、ここでは
+//     MeshPhysicalMaterial の3つのパラメータで近似する：
+//       ・transmission を下げる … 向こうが透けなくなる（不透明化）
+//       ・color を白方向へ寄せる … 散乱して戻る乳白色を diffuse で表現
+//       ・roughness をやや上げる … つやを抑えてもったり見せる
+//     なお attenuationColor（吸収色）は純色のまま残し、色相は保つ。
+// ----------------------------------------------------------------------------
+const ATTEN_MIN_DIST = 0.5; // density=1.0（最も濃い）のときの吸収距離
+const ATTEN_MAX_DIST = 10.0; // density=0.0（最も薄い）のときの吸収距離
+
+// 澄んだ状態（turbidity=0）の基準値。現行 liquidMaterial の実値に合わせる。
+// turbidity=0 のとき必ずこの値に戻り、従来と同一の見た目になることを保証する。
+const BASE_TRANSMISSION = 0.98; // 澄んだ時の透過（liquidMaterial の初期値と一致）
+const BASE_ROUGHNESS = 0.02; // 澄んだ時の表面のなめらかさ（同上）
+const BASE_SPECULAR_INTENSITY = 1.0; // 澄んだ時の鏡面反射の強さ（既定値）
+const BASE_ENVMAP_INTENSITY = 0.3; // 澄んだ時の環境マップ映り込み（liquidMaterial と一致）
+// 濁ったときの「白寄せの行き先」。純白(1.0)にすると面が明るくなりすぎて
+// スポットライトで白飛び→bloom発光する。実際のミルクも真っ白ではなく少し
+// グレーがかっているので 0.85 に抑え、面の最大明るさを頭打ちにする。
+const MILK_WHITE = 0.85;
+// 白寄せの「量」と「頭打ち位置」。濁り＝不透明化が主役で、色を白へ変えるのは
+// ごく僅かでよい。WHITE_MAX=最大の寄せ量（小さいほど元の色が残る）、
+// WHITE_SAT_T=この濁り値で白寄せが最大に達し、以降はそれ以上白くしない。
+//   → スライダーを上げ続けても色は変わらず、不透明さ（透過↓）だけが進む。
+const WHITE_MAX = 0.15;
+const WHITE_SAT_T = 0.3;
+
+function setLiquidAppearance(
+  rgb: { r: number; g: number; b: number },
+  density: number,
+  turbidity: number = 0,
+): void {
+  const d = Math.min(Math.max(density, 0), 1); // 0〜1 に念のためクランプ
+  const t = Math.min(Math.max(turbidity, 0), 1); // 濁りも 0〜1 にクランプ
+
+  // 純色（吸収色・色相のもと）。0〜255 → Three.js の 0〜1 へ。
+  const pr = rgb.r / 255;
+  const pg = rgb.g / 255;
+  const pb = rgb.b / 255;
+
+  // attenuationColor（吸収色）は純色のまま。濁っても色相は失わせない。
+  liquidMaterial.attenuationColor.setRGB(pr, pg, pb);
+
+  // density（0=薄い〜1=濃い）を距離（MAX=薄い〜MIN=濃い）へ線形に反転変換。
+  liquidMaterial.attenuationDistance =
+    ATTEN_MAX_DIST - (ATTEN_MAX_DIST - ATTEN_MIN_DIST) * d;
+
+  // --- 濁り（散乱）のSSS近似 ---------------------------------------------
+  // (1) 透過：濁るほど下げる。turbidity=0 で 0.98（従来）、=1 でほぼ0（透けない）。
+  liquidMaterial.transmission = BASE_TRANSMISSION * (1.0 - t);
+
+  // (2) 拡散色：濁るほど純色をほんの少し「ミルク白(MILK_WHITE)」へ寄せる。
+  //   ただし白寄せ量は WHITE_SAT_T（=0.3）で頭打ちにし、それ以上濁らせても
+  //   色は白くしない。これで「不透明にはなるが、元の色は残る（濁った果汁的）」
+  //   挙動になり、濁り中盤以降に色が白へ飛ぶ不自然さを防ぐ。
+  //   whiteAmt: 0 → WHITE_MAX(=0.15) まで、t=WHITE_SAT_T で最大に達してフラット。
+  const whiteAmt = WHITE_MAX * Math.min(t / WHITE_SAT_T, 1);
+  liquidMaterial.color.setRGB(
+    pr + (MILK_WHITE - pr) * whiteAmt,
+    pg + (MILK_WHITE - pg) * whiteAmt,
+    pb + (MILK_WHITE - pb) * whiteAmt,
+  );
+
+  // (3) つや：澄んだ時はツルッと、濁ると大きくマットに。
+  //   濁り＝微粒子による乱反射なので、表面のラフネスも濁りと強く連動させる。
+  //   ここが甘いと「光は通さないのに表面だけ磨いたプラスチック」のように
+  //   1点の強いハイライトが残る。そこで2つ手を打つ：
+  //     ①最大ラフネスを 0.95 まで上げる（濁り最大でほぼ光沢を消す）
+  //     ②直線連動ではなく ease-out 曲線にする：f(t)=1-(1-t)^2。
+  //       序盤で一気に立ち上がり、後半はなだらかに収束する。
+  //       → スライダー半分手前から素早くマット化し、強烈なハイライトを抑える。
+  //   turbidity=0 で 0.02（従来）、=0.5 で約0.72、=1 で 0.95。
+  const MAX_ROUGHNESS = 0.95;
+  const ease = 1 - (1 - t) * (1 - t); // ease-out（早く立ち上がる）
+  liquidMaterial.roughness =
+    BASE_ROUGHNESS + (MAX_ROUGHNESS - BASE_ROUGHNESS) * ease;
+
+  // (4) 反射の“強さ”：これがテカリの主因。ラフネスは「ハイライトの広がり」を
+  //   決めるだけで、反射率が高いままだと“広いけど明るい”テカリが残る。
+  //   濁った微粒子の液体は表面反射が弱まり拡散主体になるので、濁るほど
+  //   ・specularIntensity（鏡面反射の強さ）
+  //   ・envMapIntensity（環境マップの映り込みの強さ）
+  //   を下げる。ease-out で序盤から素早く落とすと、半分手前のテカリが消える。
+  liquidMaterial.specularIntensity =
+    BASE_SPECULAR_INTENSITY * (1 - 0.9 * ease); // 1.0 → 0.1
+  liquidMaterial.envMapIntensity =
+    BASE_ENVMAP_INTENSITY * (1 - 0.85 * ease); // 0.3 → 約0.05
+
+  // ★重要：ここでも material.needsUpdate = true は “あえて呼ばない”。
+  //   color / attenuationColor / attenuationDistance / transmission / roughness は
+  //   いずれもシェーダーの uniform なので、値を代入するだけで次の描画に自動反映される。
+  //   透過機能(USE_TRANSMISSION)はマテリアル生成時 transmission=0.98(>0) で既にON。
+  //   実行時に transmission を 0 にしても“切替フラグ”は変わらず透過量の uniform が
+  //   0 になるだけなので、再コンパイルは不要。needsUpdate=true にすると逆に
+  //   onBeforeCompile（縦グラデ）が毎フレーム再実行されて重く＆チラつくため避ける。
+}
+
+// --- 初期値を1回だけ流し込む（現状の見た目を維持する値） --------------------
+//   INITIAL_DENSITY は「現在の attenuationDistance=2」に一致する density を逆算した値：
+//     d = (MAX - 2) / (MAX - MIN) = (10 - 2) / (10 - 0.5) ≒ 0.842
+const INITIAL_RGB = { r: LIQUID_COLOR.r, g: LIQUID_COLOR.g, b: LIQUID_COLOR.b };
+const INITIAL_DENSITY =
+  (ATTEN_MAX_DIST - 2) / (ATTEN_MAX_DIST - ATTEN_MIN_DIST);
+const INITIAL_TURBIDITY = 0; // 起動時は澄んだ透明（従来の見た目）
+setLiquidAppearance(INITIAL_RGB, INITIAL_DENSITY, INITIAL_TURBIDITY);
+
+// --- 操作UIを起動 -----------------------------------------------------------
+//   UIは値を集めるだけで、3Dへの反映は onChange → setLiquidAppearance に任せる。
+//   将来 color-engine をつなぐときは、この UI の代わりに mixCocktail() の出力を
+//   setLiquidAppearance() に渡せばよい（接続点が1か所に集約されている）。
+createLiquidUI({
+  initialRGB: INITIAL_RGB,
+  initialDensity: INITIAL_DENSITY,
+  initialTurbidity: INITIAL_TURBIDITY,
+  onChange: (rgb, density, turbidity) =>
+    setLiquidAppearance(rgb, density, turbidity),
+});
+
+// ============================================================================
+// 5.5 木の机（グラスを乗せる板）
+//   「木の机の上にグラスが乗っている」という設定にするため、グラスの足元(y=0)に
+//   水平な板（plane）を1枚敷く。木目は外部画像を使わず、makeWoodTexture() で
+//   canvas に手続き的に描いたテクスチャを map（UVマッピング）して表現する。
+// ============================================================================
+const woodTexture = makeWoodTexture();
+// PlaneGeometry は初期状態で「画面に正対する縦の板」なので、X軸まわりに -90°
+// 回して水平（床）にする。
+//   ・幅(左右)=40 …… 画面の左右いっぱいに机を広げる
+//   ・奥行(前後)=6.3 … 中心(z=0)にグラスがあるので、手前 z=+3.15／奥 z=-3.15 まで。
+//     グラス(z=0)がちょうど奥行き方向の中心（半分の位置）になる。
+const woodGeometry = new THREE.PlaneGeometry(40, 6.3);
+// ★机は MeshLambertMaterial を使う（重要）。
+//   MeshStandardMaterial だと scene.environment（スタジオ環境マップ）の一様な
+//   起こし光＋白い鏡面反射を机が拾ってしまい、diffuse色をどれだけ暗くしても
+//   机が真っ暗にならなかった（環境マップの反射フロアが残る）。
+//   Lambert は環境マップの一様照射を受けず「ライト（ピンスポット）だけ」で照らされる
+//   ので、光が当たらない所は真っ黒になり、グラスの下だけ木が浮かぶ参考画像の見え方になる。
+const woodMaterial = new THREE.MeshLambertMaterial({
+  map: woodTexture, // 木目テクスチャを色として貼る
+  // color は map に掛かる乗数。Lambert は白い鏡面反射フロアが無いので、ここを
+  // 暗くすると机全体が素直に暗くなる（＝木の画像を思いっきり暗くできる）。
+  color: 0xb07a4e,
+});
+const woodPlane = new THREE.Mesh(woodGeometry, woodMaterial);
+woodPlane.rotation.x = -Math.PI / 2; // 水平に倒す
+woodPlane.position.y = -0.015; // グラス台座(y=0)のわずか下。重なり(z-fighting)を防ぐ
+scene.add(woodPlane);
+
+// ----------------------------------------------------------------------------
+// 偽の影（接地影）：中心が濃く外へ透明になる「黒いぼかし円盤」を台座の真下に1枚敷く。
+//   物理的な影ではないが、これだけで「机に置いてある」接地感が出る（負荷ほぼゼロ）。
+//   ・放射状グラデを canvas で描いて CanvasTexture にし、平らな板に貼る。
+//   ・黒なのでトーンマッピングの影響を受けない（黒は露出を変えても黒）。
+//   ・透明＋depthWrite:false で机の上にそっと重ねる。
+// ----------------------------------------------------------------------------
+function makeShadowTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0.0, 'rgba(0,0,0,0.55)'); // 中心の濃さ
+  g.addColorStop(0.4, 'rgba(0,0,0,0.25)');
+  g.addColorStop(1.0, 'rgba(0,0,0,0)'); // 外周は透明
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+const shadowMaterial = new THREE.MeshBasicMaterial({
+  map: makeShadowTexture(),
+  transparent: true,
+  depthWrite: false, // 床にめり込まない／重なりトラブル防止
+});
+// 円盤サイズは台座直径(約1.44)より少し大きめにして、足元からにじむ柔らかい影に。
+const shadowPatch = new THREE.Mesh(
+  new THREE.PlaneGeometry(3.2, 3.2),
+  shadowMaterial,
+);
+shadowPatch.rotation.x = -Math.PI / 2; // 机と平行に寝かせる
+shadowPatch.position.set(0, -0.005, 0); // 机(y=-0.015)のすぐ上・台座底(y=0)の下
+scene.add(shadowPatch);
+
+// ============================================================================
+// 5.6 バックバー（背景の実写写真）
+//   グラスの奥に縦のプレーンを立て、public/backbar.jpg（実写のバー/ラウンジ写真）を
+//   テクスチャとして貼る。MeshBasicMaterial（自己発光・ライト非依存）なので暗い
+//   シーンでもそのまま見え、奥に置くことで DOF（被写界深度）でほどよくボケて
+//   "バーの背景"になる。
+//   ・写真は元から暗め・ボケ気味なので、そのまま雰囲気のある背景になる。
+//   ・写真は sRGB なので colorSpace を合わせる（合わせないと色がくすむ）。
+// ============================================================================
+const backBarTexture = new THREE.TextureLoader().load('/backbar.jpg');
+backBarTexture.colorSpace = THREE.SRGBColorSpace;
+// 写真のアスペクト比（1874:899 ≒ 2.085:1）を保ったままプレーンを作る。
+//   カメラ(fov45°)から z=-9 の奥行までで「画面に見える縦範囲」は約14.5。プレーンを
+//   それより大きくすると写真の上下（特に上のランプ）が画面外に切れてしまうので、
+//   高さ=15 に抑えて写真全体（ランプ＋ソファ）が背景に収まるようにする。
+//   幅 = 15 × 2.085 ≒ 31.3 で、画面幅(約25.8)も十分に覆う。
+const BACKBAR_ASPECT = 1874 / 899;
+const BACKBAR_H = 15;
+const BACKBAR_W = BACKBAR_H * BACKBAR_ASPECT;
+const backBarGeometry = new THREE.PlaneGeometry(BACKBAR_W, BACKBAR_H);
+const backBarMaterial = new THREE.MeshBasicMaterial({
+  map: backBarTexture, // 実写写真を貼る
+  // ★重要：トーンマッピングを通さない。
+  //   シーンは ACES＋EXPOSURE 0.35 で暗部を強く潰す設定なので、そのままだと
+  //   元から暗い写真がさらに沈んで真っ黒な帯になってしまう。toneMapped=false に
+  //   すると写真は元の明るさのまま表示され、ランプやソファが見える。
+  toneMapped: false,
+});
+const backBar = new THREE.Mesh(backBarGeometry, backBarMaterial);
+// グラス(z=0)よりかなり奥(z=-9)に立てる。机の奥端(z=-3.15)よりさらに後ろ。
+//   y=0.5：写真をやや下げて、上の吊りランプが画面上端で切れずに収まるようにする。
+//   （カメラfov45°・z=-9 では画面上端が world y≒8.1。写真上端のランプがそこを
+//    超えないよう写真全体を少し下げる。）
+backBar.position.set(0, 0.5, -9);
+scene.add(backBar);
+
 // ※ ステップ6まで置いていた透け確認用のグリッド（GridHelper）は、
 //   ステップ7で背景を作り込んだので廃止した（背景の邪魔になるため）。
 
@@ -466,7 +882,7 @@ controls.target.set(0, 1.35, 0);
 //          OutputPass で戻さないと色がくすむ。最新Three.jsでの定番の締め。
 // ============================================================================
 const composer = new EffectComposer(renderer);
-composer.setPixelRatio(window.devicePixelRatio);
+composer.setPixelRatio(PIXEL_RATIO); // renderer と同じ上限付きピクセル比
 composer.addPass(new RenderPass(scene, camera)); // (1) 土台の絵
 
 const bloomPass = new UnrealBloomPass(
