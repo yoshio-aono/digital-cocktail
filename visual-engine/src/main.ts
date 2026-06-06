@@ -771,33 +771,57 @@ const INITIAL_TURBIDITY = 0; // 起動時は澄んだ透明（従来の見た目
 setLiquidAppearance(INITIAL_RGB, INITIAL_DENSITY, INITIAL_TURBIDITY);
 
 // ----------------------------------------------------------------------------
-// ★ スマホでパネルを開いたときのカメラ寄せ ★ — スマホ表示のときだけ
+// ★ スマホでパネルを開いたときのカメラ調整 ★ — スマホ表示のときだけ
 //   スマホでパネルを開くと画面の右側が隠れてしまう。そこでパネルを開いている間だけ、
-//   グラスを左の空きスペースへ寄せ、さらに少し引いて（ズームアウト）全体を見やすくする。
-//   ・setViewOffset … カメラの描画範囲を「ずらす」機能。横方向のオフセットを正にすると
-//     描画が左へずれる＝グラスが左に寄る。画面ピクセル基準なので端末の縦横比に依存せず安定。
-//   ・camera.zoom   … 1=標準 / 1未満で引き（全体が小さく収まる）。
-//   ※OrbitControls の回転中心（グラス）は動かさないので、回転・操作は今までどおり。
+//   ①カメラの座標を動かし ②ズーム率を変え ③描画を左へ寄せて、グラス全体を
+//   左の空きスペースに収め、液体の変化を見やすくする。
+//
+//   調整できる3つのパラメータ（ここの数値を変えるだけで見え方を詰められる）：
+//     (1) PANEL_CAM_POS … パネルを開いた時の【カメラの座標(x,y,z)】。
+//         z を大きくすると後ろに下がって全体が見える／y を上げると見下ろし気味になる。
+//         OrbitControls が毎フレーム「グラスの方を向く」ので、座標を変えると角度も変わる。
+//     (2) PANEL_VIEW_ZOOM … 【ズーム率】。1=標準 / 1未満で引き（小さく収まる）/ 1超で寄り。
+//     (3) PANEL_VIEW_SHIFT … 画面幅に対して描画を左へずらす割合（大きいほど左へ寄る）。
+//         setViewOffset（画面ピクセル基準）なので端末の縦横比に依存せず安定。
+//   ※閉じたときは「開く直前のカメラ状態」へ戻すので、ユーザーが回していた向きは保持される。
 //   ※PC（IS_MOBILE===false）では何もしない＝従来と完全に同じ。
 // ----------------------------------------------------------------------------
-const PANEL_VIEW_SHIFT = 0.24; // 画面幅に対して左へずらす割合（大きいほど左へ寄る）
-const PANEL_VIEW_ZOOM = 0.78; // パネルを開いた時のズーム（1=標準 / 小さいほど引く）
-let isPanelOpen = false; // パネルが今開いているか（リサイズ時の再適用に使う）
+// (1) パネルを開いた時のカメラ座標。既定(0,1.7,8.5)より後ろ＆少し上に引いて全体を見せる。
+const PANEL_CAM_POS = new THREE.Vector3(0, 2.0, 10.5);
+// (2) ズーム率（1=標準 / 小さいほど引き）。
+const PANEL_VIEW_ZOOM = 0.85;
+// (3) 左へずらす割合（画面幅に対する比率）。
+const PANEL_VIEW_SHIFT = 0.24;
 
-// open=true でパネルを開いたときのビュー（左寄せ＋引き）、false で元に戻す。
+let isPanelOpen = false; // パネルが今開いているか（リサイズ時の再適用に使う）
+// 「開く直前」のカメラ座標とズームを覚えておき、閉じたら元に戻す入れ物。
+//   初期値は起動時（=規定）のカメラ状態。
+const savedCam = { pos: camera.position.clone(), zoom: camera.zoom };
+
+// open=true でパネルを開いたときのビュー（座標移動＋ズーム＋左寄せ）、false で元へ戻す。
 function applyPanelView(open: boolean): void {
   isPanelOpen = open;
   if (!IS_MOBILE) return; // ★スマホのときだけ効かせる（PCは何もしない）
   const w = window.innerWidth;
   const h = window.innerHeight;
+  // 今パネルビューが効いているか（view.enabled が true なら既に寄せ状態）。
+  const alreadyShifted = camera.view !== null && camera.view.enabled;
   if (open) {
-    camera.zoom = PANEL_VIEW_ZOOM; // 少し引いて全体を収める
-    // 横オフセットを正にして描画を左へずらす（グラスが左の空きスペースへ寄る）。
-    // setViewOffset の中で updateProjectionMatrix が呼ばれるので zoom もここで反映される。
+    // まだ通常ビューのときだけ、現在のカメラ状態を保存（閉じた時に戻すため）。
+    // リサイズ等で開いたまま再適用されたときに、寄せ後の座標で上書きしないようにする。
+    if (!alreadyShifted) {
+      savedCam.pos.copy(camera.position);
+      savedCam.zoom = camera.zoom;
+    }
+    camera.position.copy(PANEL_CAM_POS); // ①カメラ座標を移動（角度・距離が変わる）
+    camera.zoom = PANEL_VIEW_ZOOM; // ②ズーム率を適用
+    // ③横オフセットを正にして描画を左へずらす（グラスが左の空きスペースへ寄る）。
+    //   setViewOffset の中で updateProjectionMatrix が呼ばれ zoom もここで反映される。
     camera.setViewOffset(w, h, w * PANEL_VIEW_SHIFT, 0, w, h);
   } else {
-    camera.clearViewOffset(); // ずらしを解除（中央に戻す）
-    camera.zoom = 1; // ズームも標準へ戻す
+    camera.clearViewOffset(); // 左寄せを解除（中央に戻す）
+    camera.position.copy(savedCam.pos); // 開く前のカメラ座標へ戻す
+    camera.zoom = savedCam.zoom; // 開く前のズームへ戻す
     camera.updateProjectionMatrix(); // 変更を確定
   }
 }
