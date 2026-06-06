@@ -5,8 +5,12 @@
 //
 //   ◆扱うパラメータ（液体1つぶん）：
 //     hue       … 色相 0〜360°（色の角度。円周上の値なので単純平均は禁止＝下記参照）
+//     sat       … 彩度 0〜1（色みの鮮やかさ。0=灰色、1=純色）
+//     val       … 明度 0〜1（明るさ。0=黒、1=最も明るい）
 //     density   … 濃さ 0〜1（色素の濃さ。大きいほど濃い）
 //     turbidity … 濁り 0〜1（散乱の度合い。大きいほど白く濁って不透明）
+//   ※1液プログラムと同じく「色」は HSV（色相・彩度・明度）で持つ。3Dの液体には
+//     hsvToRgb で RGB に変換して渡す。
 //
 //   ◆この関数は「フロント非依存の純粋関数」。Three.js には一切触れない。
 //     3Dへの反映は呼び出し側（mixer-main）が setAppearance() 経由で行う。
@@ -15,6 +19,8 @@
 // 液体1つぶんのパラメータ。
 export interface LiquidParams {
   hue: number; // 0〜360°
+  sat: number; // 0〜1（彩度）
+  val: number; // 0〜1（明度）
   density: number; // 0〜1
   turbidity: number; // 0〜1
 }
@@ -30,8 +36,8 @@ export const MAX_DILUTION = 0.8;
 // 濁りボーナス係数。混ぜる2液の色相差が大きいほど turbidity を加算する量の最大値。
 //   色相差 0°  → 加算 0（似た色どうしは澄んだまま）
 //   色相差 180°→ 加算 TURBIDITY_BONUS（補色どうしは濁る＝絵の具を混ぜた濁り）
-// 暫定値。見比べて調整する。
-export const TURBIDITY_BONUS = 0.4;
+// 実際のカクテル（2液系）はそこまで濁らないので、控えめな小さい値にしている。
+export const TURBIDITY_BONUS = 0.12;
 
 // ----------------------------------------------------------------------------
 // 小さな数値ヘルパー
@@ -73,9 +79,9 @@ function hueDistance(a: number, b: number): number {
 //
 //   手順（仕様書どおり・順序厳守）：
 //     1. 色相＝円の短弧補間（lerpHue）
-//     2. density / turbidity＝比率 t で線形補間（lerp）
+//     2. 彩度・明度・density・turbidity＝比率 t で線形補間（lerp）
 //     3. 濁りボーナス＝色相差が大きいほど turbidity を加算
-//     4. 希釈＝density と turbidity に ×(1 - w) を掛けて減衰（色相は変えない）
+//     4. 希釈＝density と turbidity に ×(1 - w) を掛けて減衰（色相・彩度・明度は変えない）
 // ----------------------------------------------------------------------------
 export function mixTwoLiquids(
   l1: LiquidParams,
@@ -88,15 +94,21 @@ export function mixTwoLiquids(
   // 1. 色相は短弧補間（単純平均は禁止）。
   const hue = lerpHue(l1.hue, l2.hue, ratio);
 
-  // 2. 濃さ・濁りは普通の線形補間。
+  // 2. 彩度・明度・濃さ・濁りは普通の線形補間。
+  const sat = lerp(l1.sat, l2.sat, ratio);
+  const val = lerp(l1.val, l2.val, ratio);
   let density = lerp(l1.density, l2.density, ratio);
   let turbidity = lerp(l1.turbidity, l2.turbidity, ratio);
 
   // 3. 濁りボーナス：2液の色相差（0〜180）に比例して turbidity を上乗せ。
+  //    ただし「実際にどれだけ混ざったか」で効かせる。片方100%（ratio=0 or 1）では
+  //    混ざっていないので濁らせない。中央(0.5)で最大になる放物線で減衰させる。
+  //    （これが無いと ratio=0＝液体1のみでも色相差ぶんの濁りが乗ってしまう）
   const diff = hueDistance(l1.hue, l2.hue); // 0〜180
-  turbidity += TURBIDITY_BONUS * (diff / 180);
+  const mixAmount = 4 * ratio * (1 - ratio); // ratio=0→0 / 0.5→1 / 1→0
+  turbidity += TURBIDITY_BONUS * (diff / 180) * mixAmount;
 
-  // 4. 水による希釈：density / turbidity を ×(1 - w) で減衰。色相はそのまま。
+  // 4. 水による希釈：density / turbidity を ×(1 - w) で減衰。色相・彩度・明度はそのまま。
   //    w は 0〜MAX_DILUTION に丸めてから使う（上限を超えて透明化させない）。
   const wc = Math.min(Math.max(w, 0), MAX_DILUTION);
   density *= 1 - wc;
@@ -104,22 +116,30 @@ export function mixTwoLiquids(
 
   return {
     hue,
+    sat: clamp01(sat),
+    val: clamp01(val),
     density: clamp01(density),
     turbidity: clamp01(turbidity),
   };
 }
 
 // ----------------------------------------------------------------------------
-// ★ 色相 → RGB（0〜255）★
-//   簡略色エンジンは色を「色相角」で持つが、3Dの液体マテリアルは RGB を欲しがる
-//   （setAppearance(rgb, ...) に渡すため）。ここで彩度・明度を最大(1.0)に固定して
-//   色相だけを RGB に変換する。濃さ・濁りはマテリアル側のパラメータで表現するので、
-//   この変換では色みの「方向」だけを決めればよい。
+// ★ HSV（色相・彩度・明度）→ RGB（0〜255）★
+//   簡略色エンジンは色を HSV で持つが、3Dの液体マテリアルは RGB を欲しがる
+//   （setAppearance(rgb, ...) に渡すため）。ここで HSV を RGB に変換する。
+//   ※1液プログラム(liquid-ui.ts)の hsvToRgb と同じ式（彩度・明度も反映）。
 // ----------------------------------------------------------------------------
-export function hueToRgb(hue: number): { r: number; g: number; b: number } {
+export function hsvToRgb(
+  hue: number,
+  sat: number,
+  val: number,
+): { r: number; g: number; b: number } {
   const h = ((hue % 360) + 360) % 360; // 0〜360 に正規化
-  const c = 1; // 彩度×明度＝1（最も鮮やかな色）
+  const s = clamp01(sat);
+  const v = clamp01(val);
+  const c = v * s; // 彩度×明度＝色みの強さ
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c; // 全体の底上げ（明度ぶん）
   let r = 0;
   let g = 0;
   let b = 0;
@@ -143,8 +163,8 @@ export function hueToRgb(hue: number): { r: number; g: number; b: number } {
     b = x;
   }
   return {
-    r: Math.round(r * 255),
-    g: Math.round(g * 255),
-    b: Math.round(b * 255),
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
   };
 }

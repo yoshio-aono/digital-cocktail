@@ -1,14 +1,16 @@
 // ============================================================================
 // mixer-main — 2液混合ビューアーのエントリ（mixer.html から読み込まれる）
 //   画面は2タブ：
-//     ・設定タブ … 液体1/2の小グラス(静止)＋3軸スライダー、混合比率A、希釈B
+//     ・設定タブ … 液体1/2の「左＝小グラス(静止)プレビュー／右＝1液プログラムと同じ
+//                  色設定パネル(彩度×明度ピッカー＋色相バー＋濃さ/濁り)」、混合比率A、希釈B
 //     ・結果タブ … マティーニグラス(操作可・リッチ)＋混合結果の色情報
 //
 //   ◆負荷管理（指示書 2-2）：
 //     ・アクティブなタブの3Dだけ描く。結果タブから離れたら描画ループを止める。
 //     ・小グラスは常時ループせず、値が変わったときに1フレームだけ描く。
 //
-//   ◆既存 visual-engine 本体(main.ts)は無改変。3Dは GlassView に複製済み。
+//   ◆色は1液プログラムと同じく HSV（色相・彩度・明度）で保持し、混合エンジンも
+//     彩度・明度を含めて補間する（hsvToRgb で3Dへ）。
 // ============================================================================
 
 import '../style.css';
@@ -23,7 +25,7 @@ import {
 } from './glass-shapes';
 import {
   mixTwoLiquids,
-  hueToRgb,
+  hsvToRgb,
   MAX_DILUTION,
   type LiquidParams,
 } from './mix-color';
@@ -45,8 +47,21 @@ const LIQUID_FILL = 0.8;
 // ----------------------------------------------------------------------------
 // 状態（2液のパラメータ＋混合比率＋希釈）。スライダーがこの値を書き換える。
 // ----------------------------------------------------------------------------
-const liquid1: LiquidParams = { hue: 210, density: 0.7, turbidity: 0.1 }; // 青系
-const liquid2: LiquidParams = { hue: 40, density: 0.6, turbidity: 0.1 }; // 黄橙系
+// 色は HSV（hue 0〜360 / sat,val 0〜1）。彩度・明度は初期は最大(1)＝従来の見た目。
+const liquid1: LiquidParams = {
+  hue: 210,
+  sat: 1,
+  val: 1,
+  density: 0.7,
+  turbidity: 0.1,
+}; // 青系
+const liquid2: LiquidParams = {
+  hue: 40,
+  sat: 1,
+  val: 1,
+  density: 0.6,
+  turbidity: 0.1,
+}; // 黄橙系
 let ratio = 0.5; // 比率A：0=液体1のみ / 1=液体2のみ
 let dilution = 0.0; // 希釈B：0〜MAX_DILUTION
 
@@ -122,21 +137,34 @@ function injectStyle(): void {
   const style = el('style');
   style.textContent = `
     :root { color-scheme: dark; }
+    /* ★共有 style.css が html,body に height:100%; overflow:hidden を掛けている
+       （1液プログラムの全画面3D用）。mixer はスクロールさせたいので、ここで上書きする。
+       この <style> は style.css より後に読まれるので、同じ詳細度なら後勝ちで効く。 */
+    html, body { height: auto; overflow: visible; }
+    /* 設定タブの中身が縦に伸びたら、ページ全体（ドキュメント）が縦スクロールする。
+       タブバーは position:sticky でスクロールしても上に残る。 */
     body { margin: 0; font-family: system-ui, sans-serif; background: #0e0e12; color: #e7e7ee; }
     #tabbar { position: sticky; top: 0; z-index: 10; display: flex; background: #16161c; border-bottom: 1px solid #2a2a33; }
     #tabbar button { flex: 1; padding: 14px; background: transparent; border: none; color: #9a9aa8; font-size: 15px; cursor: pointer; }
     #tabbar button.active { color: #fff; border-bottom: 2px solid #6da8ff; background: #1d1d25; }
     .panel { display: none; }
     .panel.active { display: block; }
-    #tab-settings { padding: 12px; max-width: 520px; margin: 0 auto; }
+    /* 開いたパネルで下が切れてもスクロールで届くよう、下端に余白を足す。 */
+    #tab-settings { padding: 12px 12px 48px; max-width: 560px; margin: 0 auto; }
     .block { border: 1px solid #2a2a33; border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
     .block-header { width: 100%; text-align: left; padding: 12px 14px; background: #1a1a21; border: none; color: #cfcfe0; font-size: 14px; cursor: pointer; }
     .block-body { padding: 12px 14px; }
-    .small-glass { width: 100%; height: 170px; display: block; border-radius: 8px; background: #15151b; margin-bottom: 10px; }
+    /* 液体ブロック本体＝左:グラスプレビュー / 右:色設定パネル の2カラム */
+    .liquid-body { display: flex; gap: 14px; align-items: stretch; }
+    .glass-col { flex: 1 1 0; min-width: 0; display: flex; }
+    .small-glass { flex: 1; width: 100%; min-height: 240px; display: block; border-radius: 8px; background: #15151b; }
     .slider-row { margin: 12px 0; }
     .slider-head { display: flex; justify-content: space-between; font-size: 13px; color: #b7b7c6; margin-bottom: 4px; }
     .slider-val { color: #fff; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 100%; }
+    /* スライダー直下の数字表示（液体1:90% 液体2:10% / 希釈率;3.5倍）。
+       視認性を高めるため赤っぽい文字色にする。 */
+    .mix-readout { font-size: 13px; color: #ff7a7a; margin: -4px 0 2px; text-align: right; font-variant-numeric: tabular-nums; }
     .loose { padding: 4px 2px 0; }
     #tab-result { position: relative; }
     #result-canvas { width: 100vw; height: calc(100vh - 52px); display: block; }
@@ -166,54 +194,67 @@ settingsPanel.id = 'tab-settings';
 const canvas1 = el('canvas', 'small-glass');
 const canvas2 = el('canvas', 'small-glass');
 
-// 液体ブロックの本体（小グラス＋3スライダー）を組む共通関数。
+// 色設定パネル（1液プログラムのUI）の差し込み先。実体はビュー生成後に組み込む。
+const uiMount1 = el('div', 'ui-col');
+const uiMount2 = el('div', 'ui-col');
+
+// 液体ブロックの本体＝2カラム（左:グラスプレビュー / 右:色設定パネルの差し込み先）。
 function makeLiquidBody(
   canvas: HTMLCanvasElement,
-  state: LiquidParams,
-  onAnyChange: () => void,
+  uiMount: HTMLElement,
 ): HTMLElement {
-  const body = el('div', 'block-body');
-  body.append(canvas);
-  body.append(
-    makeSlider('色相 (hue)', 0, 360, 1, state.hue, (v) => `${Math.round(v)}°`, (v) => {
-      state.hue = v;
-      onAnyChange();
-    }),
-  );
-  body.append(
-    makeSlider('濃さ (density)', 0, 1, 0.01, state.density, (v) => v.toFixed(2), (v) => {
-      state.density = v;
-      onAnyChange();
-    }),
-  );
-  body.append(
-    makeSlider('濁り (turbidity)', 0, 1, 0.01, state.turbidity, (v) => v.toFixed(2), (v) => {
-      state.turbidity = v;
-      onAnyChange();
-    }),
-  );
+  const body = el('div', 'block-body liquid-body');
+  const glassCol = el('div', 'glass-col');
+  glassCol.append(canvas);
+  body.append(glassCol, uiMount);
   return body;
 }
 
-const block1 = makeCollapsible('液体1', makeLiquidBody(canvas1, liquid1, () => onChange()));
-const block2 = makeCollapsible('液体2', makeLiquidBody(canvas2, liquid2, () => onChange()));
+const block1 = makeCollapsible('液体1', makeLiquidBody(canvas1, uiMount1));
+const block2 = makeCollapsible('液体2', makeLiquidBody(canvas2, uiMount2));
 
-// 混合比率A・希釈B（折りたたみ不要の素のスライダー）。
-const mixBody = el('div', 'loose');
+// 混合比率A・希釈B＝「混合パラメータ」パネル（折りたたみブロック）。一番上に置く。
+const mixBody = el('div', 'block-body');
+
+// --- 混合比率スライダー＋その下の数字表示（液体1：XX% 液体2：YY%）---
+const ratioReadout = el('div', 'mix-readout');
+function updateRatioReadout(): void {
+  // ratio=0で液体1だけ(100%)、ratio=1で液体2だけ(100%)。
+  ratioReadout.textContent = `液体1：${Math.round((1 - ratio) * 100)}%　液体2：${Math.round(ratio * 100)}%`;
+}
+updateRatioReadout();
 mixBody.append(
   makeSlider('混合比率 (液体1 ⇔ 液体2)', 0, 1, 0.01, ratio, (v) => v.toFixed(2), (v) => {
     ratio = v;
+    updateRatioReadout();
     onChange();
   }),
+  ratioReadout,
 );
+
+// --- 希釈スライダー＋その下の数字表示（希釈率；X.X倍）---
+//   希釈率＝全体量／元の液量＝1/(1-w)。w=0で1.0倍、w=MAX_DILUTION(0.8)で5.0倍。
+function dilutionFactor(w: number): number {
+  return 1 / (1 - w);
+}
+const dilutionReadout = el('div', 'mix-readout');
+function updateDilutionReadout(): void {
+  dilutionReadout.textContent = `希釈率；${dilutionFactor(dilution).toFixed(1)}倍`;
+}
+updateDilutionReadout();
 mixBody.append(
   makeSlider('希釈（水）', 0, MAX_DILUTION, 0.01, dilution, (v) => v.toFixed(2), (v) => {
     dilution = v;
+    updateDilutionReadout();
     onChange();
   }),
+  dilutionReadout,
 );
 
-settingsPanel.append(block1, block2, mixBody);
+const mixPanel = makeCollapsible('混合パラメータ', mixBody);
+
+// 並び順：混合パラメータ → 液体1 → 液体2。
+settingsPanel.append(mixPanel, block1, block2);
 
 // --- 結果パネル -------------------------------------------------------------
 const resultPanel = el('div', 'panel');
@@ -283,7 +324,7 @@ function resultResize(): void {
 //   resultPanel に載せるので、結果タブが非表示のときは一緒に隠れる。
 //   操作は受け付けず、値は onChange から setValues で流し込む。
 const resultUI: LiquidUIHandle = createLiquidUI({
-  initialRGB: hueToRgb(liquid1.hue), // 仮の初期値（直後の onChange で上書き）
+  initialRGB: hsvToRgb(liquid1.hue, liquid1.sat, liquid1.val), // 仮の初期値（直後の onChange で上書き）
   initialDensity: liquid1.density,
   initialTurbidity: liquid1.turbidity,
   onChange: () => {}, // readonly なので呼ばれない
@@ -293,12 +334,47 @@ const resultUI: LiquidUIHandle = createLiquidUI({
 });
 
 // ----------------------------------------------------------------------------
+// 液体1/2の色設定パネル＝1液プログラムと同じ操作UI（埋め込み・見出しなし）。
+//   設定ブロックの右カラム(uiMount)に組み込む。操作すると state(HSV+濃さ+濁り)を
+//   書き換えて onChange() を呼び、小グラスと混合結果に反映する。
+//   ※onChange は view/resultSc/resultUI を参照するので、それらの生成後に作る。
+// ----------------------------------------------------------------------------
+function makeLiquidUI(state: LiquidParams, mount: HTMLElement): void {
+  createLiquidUI({
+    initialRGB: hsvToRgb(state.hue, state.sat, state.val),
+    initialDensity: state.density,
+    initialTurbidity: state.turbidity,
+    embedded: true, // 浮かせず右カラムに収める
+    showHeader: false, // 見出しは外側の「液体1/2」ブロックが持つ
+    onChange: (_rgb, density, turbidity, hsv) => {
+      state.hue = hsv.h;
+      state.sat = hsv.s;
+      state.val = hsv.v;
+      state.density = density;
+      state.turbidity = turbidity;
+      onChange();
+    },
+    mount,
+  });
+}
+makeLiquidUI(liquid1, uiMount1);
+makeLiquidUI(liquid2, uiMount2);
+
+// ----------------------------------------------------------------------------
 // 値が変わったときの再計算＆反映
 // ----------------------------------------------------------------------------
 function onChange(): void {
   // 小グラス：各液体の素の色をそのまま反映（混合前）。
-  view1.setAppearance(hueToRgb(liquid1.hue), liquid1.density, liquid1.turbidity);
-  view2.setAppearance(hueToRgb(liquid2.hue), liquid2.density, liquid2.turbidity);
+  view1.setAppearance(
+    hsvToRgb(liquid1.hue, liquid1.sat, liquid1.val),
+    liquid1.density,
+    liquid1.turbidity,
+  );
+  view2.setAppearance(
+    hsvToRgb(liquid2.hue, liquid2.sat, liquid2.val),
+    liquid2.density,
+    liquid2.turbidity,
+  );
   // 設定タブが見えているときだけ小グラスを描き直す（静止グラスは手動描画）。
   if (settingsPanel.classList.contains('active')) {
     view1.renderOnce();
@@ -307,7 +383,7 @@ function onChange(): void {
 
   // 結果：簡略色エンジンで2液を混ぜ、マティーニに反映（1液プログラムと同じ反映関数）。
   const mixed = mixTwoLiquids(liquid1, liquid2, ratio, dilution);
-  const rgb = hueToRgb(mixed.hue);
+  const rgb = hsvToRgb(mixed.hue, mixed.sat, mixed.val);
   resultSc.setLiquidAppearance(rgb, mixed.density, mixed.turbidity);
   // 数値表示も同じパネルに反映（固定表示なので setValues で値だけ流す）。
   resultUI.setValues(rgb, mixed.density, mixed.turbidity);

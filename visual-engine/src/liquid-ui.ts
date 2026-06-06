@@ -19,10 +19,13 @@ export interface LiquidUIOptions {
   // 起動時の濁り（0.0〜1.0）。スライダーの初期位置に使う。
   initialTurbidity: number;
   // 色・濃さ・濁りのどれかが変わるたびに呼ばれるコールバック。ここで3Dへ反映する。
+  //   第4引数 hsv は色相・彩度・明度（0〜360 / 0〜1 / 0〜1）。色を HSV のまま
+  //   保持したい呼び出し側（mixer）が使う。RGB だけで足りる側は無視してよい。
   onChange: (
     rgb: { r: number; g: number; b: number },
     density: number,
     turbidity: number,
+    hsv: { h: number; s: number; v: number },
   ) => void;
   // パネルを開いた/閉じたときに呼ばれるコールバック（任意）。
   //   open=true で開いた、false で閉じた。main.ts 側でスマホ時のカメラ寄せに使う。
@@ -38,6 +41,13 @@ export interface LiquidUIOptions {
   //   ・onChange は呼ばない（3Dへの反映は呼び出し側が別経路で行う前提）。
   //   mixer の結果ビューのように「混合結果で固定表示」する用途に使う。
   readonly?: boolean;
+  // 埋め込みモード（任意）。true のとき position:fixed の浮きパネルではなく、
+  //   親要素の中に収まる静的パネル（幅は親に追従＝width:100%）になる。
+  //   設定画面の右半分に組み込む用途に使う。
+  embedded?: boolean;
+  // 見出し（開閉ヘッダー）を出すか（任意・既定 true）。false で見出しと開閉を省き、
+  //   中身を常に開いた状態で出す（外側で別の折りたたみを持つ埋め込み用途向け）。
+  showHeader?: boolean;
 }
 
 // createLiquidUI が返す操作ハンドル。
@@ -123,6 +133,10 @@ function rgbToHsv(
 export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
   // 読み取り専用フラグ（操作不可・onChange なし）。
   const READONLY = options.readonly === true;
+  // 埋め込みフラグ（浮きパネルでなく親要素内に収める）。
+  const EMBEDDED = options.embedded === true;
+  // 見出し（開閉ヘッダー）を出すか。既定 true。
+  const SHOW_HEADER = options.showHeader !== false;
   // 起動時の色を HSV に変換して、ピッカーの状態（state）の初期値にする。
   const initHsv = rgbToHsv(
     options.initialRGB.r,
@@ -158,24 +172,36 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
   const FONT_READOUT = IS_MOBILE ? 13 : 11; // 現在値の表示
 
   // ------------------------------------------------------------------
-  // 1) パネルの外枠（半透明の黒い箱）
+  // 1) パネルの外枠
+  //   通常＝画面右上に浮く半透明の箱（position:fixed）。
+  //   埋め込み（EMBEDDED）＝親要素の中に収まる静的な箱（幅は中身ぶん＝SV_SIZE）。
   // ------------------------------------------------------------------
   const panel = document.createElement('div');
-  panel.style.cssText = [
-    'position:fixed',
-    'top:16px',
-    'right:16px',
-    'z-index:10', // 3Dキャンバスより手前に出す
-    'padding:14px',
-    'border-radius:12px',
-    'background:rgba(20,20,26,0.82)', // 半透明の暗い背景
-    'backdrop-filter:blur(6px)', // 背後をすりガラス風にぼかす
-    'box-shadow:0 6px 24px rgba(0,0,0,0.45)',
-    'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
-    'color:#e8e8ee',
-    'user-select:none', // ドラッグ時に文字が選択されないように
-    'width:' + SV_SIZE + 'px',
-  ].join(';');
+  panel.style.cssText = (
+    EMBEDDED
+      ? [
+          'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
+          'color:#e8e8ee',
+          'user-select:none',
+          'width:' + SV_SIZE + 'px',
+          'flex:0 0 auto', // 親が flex でも縮まないように
+        ]
+      : [
+          'position:fixed',
+          'top:16px',
+          'right:16px',
+          'z-index:10', // 3Dキャンバスより手前に出す
+          'padding:14px',
+          'border-radius:12px',
+          'background:rgba(20,20,26,0.82)', // 半透明の暗い背景
+          'backdrop-filter:blur(6px)', // 背後をすりガラス風にぼかす
+          'box-shadow:0 6px 24px rgba(0,0,0,0.45)',
+          'font-family:system-ui,-apple-system,"Segoe UI",sans-serif',
+          'color:#e8e8ee',
+          'user-select:none', // ドラッグ時に文字が選択されないように
+          'width:' + SV_SIZE + 'px',
+        ]
+  ).join(';');
 
   // ------------------------------------------------------------------
   // タイトル＝開閉ヘッダー（蛇腹/アコーディオン）
@@ -205,16 +231,19 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
     'font-size:' + FONT_CARET + 'px;margin-left:8px;opacity:0.8;';
   header.appendChild(caret);
 
-  panel.appendChild(header);
+  // SHOW_HEADER=false（埋め込みで外側に見出しがある）のときは見出しを出さない。
+  if (SHOW_HEADER) panel.appendChild(header);
 
   // 中身（ピッカー・スライダー・数値表示）をまとめて入れる箱。
   // ここの display を切り替えるだけで蛇腹的に開閉できる。
   const content = document.createElement('div');
-  content.style.cssText = 'margin-top:10px;';
+  // 見出しがあるときだけ上に余白を空ける。
+  content.style.cssText = SHOW_HEADER ? 'margin-top:10px;' : '';
   panel.appendChild(content);
 
   // 開閉状態。スマホ幅(768px以下)では初期は閉じておく（描画を邪魔しないため）。
-  let collapsed = window.innerWidth <= 768;
+  //   見出しなし（SHOW_HEADER=false）のときは常に開いた状態とし、開閉はしない。
+  let collapsed = SHOW_HEADER && window.innerWidth <= 768;
   // 現在の collapsed に合わせて、中身の表示とキャレットの向きを更新する。
   //   開閉が変わるたびに onToggle(open) も呼んで、main.ts 側へ状態を伝える。
   function applyCollapsed(): void {
@@ -223,12 +252,14 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
     // open = 開いているか（collapsed の反対）。スマホ時のカメラ寄せに使われる。
     options.onToggle?.(!collapsed);
   }
-  applyCollapsed(); // 初期状態を反映
-  // ヘッダーのクリック/タップで開閉をトグルする。
-  header.addEventListener('click', () => {
-    collapsed = !collapsed;
-    applyCollapsed();
-  });
+  if (SHOW_HEADER) {
+    applyCollapsed(); // 初期状態を反映
+    // ヘッダーのクリック/タップで開閉をトグルする。
+    header.addEventListener('click', () => {
+      collapsed = !collapsed;
+      applyCollapsed();
+    });
+  }
 
   // ------------------------------------------------------------------
   // 2) 彩度×明度の正方形（メインのカラーピッカー）
@@ -378,8 +409,11 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
       `HSV&nbsp;&nbsp;${Math.round(state.h)}°, ${Math.round(
         state.s * 100,
       )}%, ${Math.round(state.v * 100)}%<br>` +
+      // 濃さ・濁りは視認性を上げるため赤系の文字色にする（この2行だけ）。
+      `<span style="color:#ff7a7a">` +
       `濃さ&nbsp;&nbsp;${Math.round(state.density * 100)}%<br>` +
-      `濁り&nbsp;&nbsp;${Math.round(state.turbidity * 100)}%`;
+      `濁り&nbsp;&nbsp;${Math.round(state.turbidity * 100)}%` +
+      `</span>`;
     // ピッカーを描き直す（マーカー位置や色相が変わるため）
     drawSV();
     drawHue();
@@ -389,8 +423,13 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
   function emit(): void {
     render();
     const rgb = hsvToRgb(state.h, state.s, state.v);
-    // 3Dへ反映（main.ts の setLiquidAppearance が呼ばれる）
-    options.onChange(rgb, state.density, state.turbidity);
+    // 3Dへ反映（main.ts の setLiquidAppearance が呼ばれる）。
+    //   第4引数で HSV も渡す（mixer が色を HSV のまま保持するため）。
+    options.onChange(rgb, state.density, state.turbidity, {
+      h: state.h,
+      s: state.s,
+      v: state.v,
+    });
   }
 
   // ------------------------------------------------------------------
