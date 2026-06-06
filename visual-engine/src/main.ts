@@ -793,9 +793,11 @@ setLiquidAppearance(INITIAL_RGB, INITIAL_DENSITY, INITIAL_TURBIDITY);
 //   もっと見下ろしたいなら y を上げる／z を小さくする。水平寄りにしたいなら y を下げる。
 const PANEL_CAM_POS = new THREE.Vector3(0, 6.5, 7.0);
 // (2) ズーム率（1=標準 / 小さいほど引き）。
-const PANEL_VIEW_ZOOM = 0.85;
+//   グラス全体が画面に収まるよう、少し引き気味(0.75)にする。
+const PANEL_VIEW_ZOOM = 0.75;
 // (3) 左へずらす割合（画面幅に対する比率）。
-const PANEL_VIEW_SHIFT = 0.24;
+//   寄せすぎるとグラスの左端が画面外に切れるので、控えめ(0.14)にして全体を収める。
+const PANEL_VIEW_SHIFT = 0.14;
 
 let isPanelOpen = false; // パネルが今開いているか（リサイズ時の再適用に使う）
 // 「開く直前」のカメラ座標とズームを覚えておき、閉じたら元に戻す入れ物。
