@@ -116,10 +116,23 @@ export function createLiquidUI(options: LiquidUIOptions): void {
     turbidity: options.initialTurbidity, // 濁り 0〜1
   };
 
-  // 各キャンバスの寸法（PC向けに見やすいサイズ）
-  const SV_SIZE = 180; // 彩度×明度の正方形の一辺(px)
-  const HUE_W = 180; // 色相バーの幅(px)
+  // スマホ画面かどうか（幅768px以下）。値の選択にだけ使い、処理は分岐させない。
+  //   PC（IS_MOBILE===false）では従来とまったく同じ数値が入るようにしてある。
+  const IS_MOBILE = window.innerWidth <= 768;
+
+  // 各キャンバスの寸法。
+  //   スマホでは描画画面を空けたいので、パネル幅（=この正方形の一辺）を少し小さくする。
+  //   PCは従来通り180px。
+  const SV_SIZE = IS_MOBILE ? 150 : 180; // 彩度×明度の正方形の一辺(px)＝パネル幅
+  const HUE_W = SV_SIZE; // 色相バーの幅(px)＝パネル幅に合わせる
   const HUE_H = 16; // 色相バーの高さ(px)
+
+  // 文字サイズ。スマホは小さい画面でも読めるよう、全体を少し大きめにする。
+  //   PCは従来の値（13/12/11px）のまま。
+  const FONT_HEADER = IS_MOBILE ? 15 : 13; // ヘッダー（タイトル）
+  const FONT_CARET = IS_MOBILE ? 13 : 11; // 開閉キャレット（▼▶）
+  const FONT_LABEL = IS_MOBILE ? 14 : 12; // スライダーのラベル
+  const FONT_READOUT = IS_MOBILE ? 13 : 11; // 現在値の表示
 
   // ------------------------------------------------------------------
   // 1) パネルの外枠（半透明の黒い箱）
@@ -154,7 +167,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
     'align-items:center',
     'justify-content:space-between',
     'cursor:pointer', // クリックできることを示す
-    'font-size:13px',
+    'font-size:' + FONT_HEADER + 'px',
     'font-weight:600',
     'letter-spacing:0.04em',
   ].join(';');
@@ -165,7 +178,8 @@ export function createLiquidUI(options: LiquidUIOptions): void {
 
   // 開閉状態を示すキャレット（小さな三角）。
   const caret = document.createElement('span');
-  caret.style.cssText = 'font-size:11px;margin-left:8px;opacity:0.8;';
+  caret.style.cssText =
+    'font-size:' + FONT_CARET + 'px;margin-left:8px;opacity:0.8;';
   header.appendChild(caret);
 
   panel.appendChild(header);
@@ -221,7 +235,8 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   // ------------------------------------------------------------------
   const densityLabel = document.createElement('div');
   densityLabel.textContent = '濃さ（薄い ⇔ 濃い）';
-  densityLabel.style.cssText = 'font-size:12px;margin:12px 0 4px;';
+  densityLabel.style.cssText =
+    'font-size:' + FONT_LABEL + 'px;margin:12px 0 4px;';
   content.appendChild(densityLabel);
 
   const densitySlider = document.createElement('input');
@@ -233,12 +248,13 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   content.appendChild(densitySlider);
 
   // ------------------------------------------------------------------
-  // 4.5) 濁りスライダー（澄んだ ⇔ 乳白）
+  // 4.5) 濁りスライダー（澄んだ ⇔ 濁った）
   //   0=透き通った透明 / 1=ミルクのように白く濁って不透明。
   // ------------------------------------------------------------------
   const turbidityLabel = document.createElement('div');
-  turbidityLabel.textContent = '濁り（澄んだ ⇔ 乳白）';
-  turbidityLabel.style.cssText = 'font-size:12px;margin:12px 0 4px;';
+  turbidityLabel.textContent = '濁り（澄んだ ⇔ 濁った）';
+  turbidityLabel.style.cssText =
+    'font-size:' + FONT_LABEL + 'px;margin:12px 0 4px;';
   content.appendChild(turbidityLabel);
 
   const turbiditySlider = document.createElement('input');
@@ -255,7 +271,9 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   // ------------------------------------------------------------------
   const readout = document.createElement('div');
   readout.style.cssText =
-    'font-size:11px;line-height:1.6;margin-top:10px;font-family:ui-monospace,monospace;color:#b9b9c6;';
+    'font-size:' +
+    FONT_READOUT +
+    'px;line-height:1.6;margin-top:10px;font-family:ui-monospace,monospace;color:#b9b9c6;';
   content.appendChild(readout);
 
   document.body.appendChild(panel);
