@@ -138,12 +138,54 @@ export function createLiquidUI(options: LiquidUIOptions): void {
     'width:' + SV_SIZE + 'px',
   ].join(';');
 
-  // タイトル
-  const title = document.createElement('div');
+  // ------------------------------------------------------------------
+  // タイトル＝開閉ヘッダー（蛇腹/アコーディオン）
+  //   ヘッダーをタップ/クリックすると下の中身(content)を開いたり閉じたりできる。
+  //   スマホでは初期状態を「閉じた」状態にして、3Dの描画をパネルが邪魔しないようにする。
+  //   右端のキャレット（▼=開いている / ▶=閉じている）で今の状態がわかる。
+  // ------------------------------------------------------------------
+  const header = document.createElement('div');
+  // flex で「タイトル文字」と「キャレット」を左右に振り分ける。
+  header.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'cursor:pointer', // クリックできることを示す
+    'font-size:13px',
+    'font-weight:600',
+    'letter-spacing:0.04em',
+  ].join(';');
+
+  const title = document.createElement('span');
   title.textContent = '液体カラー';
-  title.style.cssText =
-    'font-size:13px;font-weight:600;margin-bottom:10px;letter-spacing:0.04em;';
-  panel.appendChild(title);
+  header.appendChild(title);
+
+  // 開閉状態を示すキャレット（小さな三角）。
+  const caret = document.createElement('span');
+  caret.style.cssText = 'font-size:11px;margin-left:8px;opacity:0.8;';
+  header.appendChild(caret);
+
+  panel.appendChild(header);
+
+  // 中身（ピッカー・スライダー・数値表示）をまとめて入れる箱。
+  // ここの display を切り替えるだけで蛇腹的に開閉できる。
+  const content = document.createElement('div');
+  content.style.cssText = 'margin-top:10px;';
+  panel.appendChild(content);
+
+  // 開閉状態。スマホ幅(768px以下)では初期は閉じておく（描画を邪魔しないため）。
+  let collapsed = window.innerWidth <= 768;
+  // 現在の collapsed に合わせて、中身の表示とキャレットの向きを更新する。
+  function applyCollapsed(): void {
+    content.style.display = collapsed ? 'none' : 'block';
+    caret.textContent = collapsed ? '▶' : '▼';
+  }
+  applyCollapsed(); // 初期状態を反映
+  // ヘッダーのクリック/タップで開閉をトグルする。
+  header.addEventListener('click', () => {
+    collapsed = !collapsed;
+    applyCollapsed();
+  });
 
   // ------------------------------------------------------------------
   // 2) 彩度×明度の正方形（メインのカラーピッカー）
@@ -154,7 +196,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   svCanvas.height = SV_SIZE;
   svCanvas.style.cssText =
     'display:block;border-radius:8px;cursor:crosshair;touch-action:none;';
-  panel.appendChild(svCanvas);
+  content.appendChild(svCanvas);
   const svCtx = svCanvas.getContext('2d')!;
 
   // ------------------------------------------------------------------
@@ -165,7 +207,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   hueCanvas.height = HUE_H;
   hueCanvas.style.cssText =
     'display:block;margin-top:10px;border-radius:6px;cursor:pointer;touch-action:none;';
-  panel.appendChild(hueCanvas);
+  content.appendChild(hueCanvas);
   const hueCtx = hueCanvas.getContext('2d')!;
 
   // ------------------------------------------------------------------
@@ -174,7 +216,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   const densityLabel = document.createElement('div');
   densityLabel.textContent = '濃さ（薄い ⇔ 濃い）';
   densityLabel.style.cssText = 'font-size:12px;margin:12px 0 4px;';
-  panel.appendChild(densityLabel);
+  content.appendChild(densityLabel);
 
   const densitySlider = document.createElement('input');
   densitySlider.type = 'range';
@@ -182,7 +224,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   densitySlider.max = '100';
   densitySlider.value = String(Math.round(state.density * 100));
   densitySlider.style.cssText = 'width:100%;cursor:pointer;';
-  panel.appendChild(densitySlider);
+  content.appendChild(densitySlider);
 
   // ------------------------------------------------------------------
   // 4.5) 濁りスライダー（澄んだ ⇔ 乳白）
@@ -191,7 +233,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   const turbidityLabel = document.createElement('div');
   turbidityLabel.textContent = '濁り（澄んだ ⇔ 乳白）';
   turbidityLabel.style.cssText = 'font-size:12px;margin:12px 0 4px;';
-  panel.appendChild(turbidityLabel);
+  content.appendChild(turbidityLabel);
 
   const turbiditySlider = document.createElement('input');
   turbiditySlider.type = 'range';
@@ -199,7 +241,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   turbiditySlider.max = '100';
   turbiditySlider.value = String(Math.round(state.turbidity * 100));
   turbiditySlider.style.cssText = 'width:100%;cursor:pointer;';
-  panel.appendChild(turbiditySlider);
+  content.appendChild(turbiditySlider);
 
   // ------------------------------------------------------------------
   // 5) 現在値の表示（RGB / HSV / 濃さ）
@@ -208,7 +250,7 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   const readout = document.createElement('div');
   readout.style.cssText =
     'font-size:11px;line-height:1.6;margin-top:10px;font-family:ui-monospace,monospace;color:#b9b9c6;';
-  panel.appendChild(readout);
+  content.appendChild(readout);
 
   document.body.appendChild(panel);
 
