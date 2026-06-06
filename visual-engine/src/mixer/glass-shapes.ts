@@ -107,14 +107,18 @@ export function buildSmallGlassShape(spec: SmallGlassSpec): GlassShape {
 
   // カメラ：グラスの高さに応じて、やや上から見下ろし気味の固定アングル。
   //   小グラスは視点固定・静止なので、ここで決めた1アングルだけ使う。
-  const cy = height * 0.5; // 注視点はグラスの中ほど
+  //   ★少しだけ見下ろし：カメラを高めに上げつつ注視点をリム寄りに上げると、
+  //     グラス上部の液面がほんの少し覗く程度の俯角になる。
+  const cy = height * 0.5; // グラスの中ほど（高さの基準）
   const dist = height * 2.6 + 1.6; // 高いグラスほど少し引く
   return {
     profile,
     innerBottom: new THREE.Vector2(innerBaseR, innerBottomY),
     innerRim: new THREE.Vector2(innerTopR, height),
-    cameraPos: [0, cy + height * 0.55, dist],
-    cameraTarget: [0, cy, 0],
+    // カメラ位置を高くし、注視点もリム寄り（中ほどより上）へ。これで俯角が付き、
+    // 液面が少し見える。引きすぎ・見下ろしすぎないよう控えめな係数にする。
+    cameraPos: [0, cy + height * 0.95, dist],
+    cameraTarget: [0, height * 0.7, 0],
   };
 }
 

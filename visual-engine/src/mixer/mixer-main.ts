@@ -38,7 +38,7 @@ import { createLiquidUI, type LiquidUIHandle } from '../liquid-ui';
 // ★ 調整用の定数（ここだけ触れば挙動が変わる）★
 // ----------------------------------------------------------------------------
 // 小グラスの形状パターン。1=ショット / 2=タンブラー / 3=ロック（見比べて選ぶ）。
-const SMALL_GLASS_STYLE: 1 | 2 | 3 = 2;
+const SMALL_GLASS_STYLE: 1 | 2 | 3 = 1;
 // 小グラスをリッチ表示にするか。false=簡易（軽い）。指示どおり既定は簡易。
 const SMALL_GLASS_RICH = false;
 // グラスにどれだけ注ぐか（0〜1）。0.8＝8分目。
@@ -272,19 +272,21 @@ const smallSpec = SMALL_GLASS_STYLES[SMALL_GLASS_STYLE];
 const smallShape: GlassShape = buildSmallGlassShape(smallSpec);
 const smallLiquid: THREE.Vector2[] = buildLiquidProfile(smallShape, LIQUID_FILL);
 
+// interactive:true ＝ ドラッグでぐりぐり視点回転できる（OrbitControls＋描画ループ）。
+//   負荷管理：設定タブが見えている間だけ start()、離れたら stop() する（下の showTab）。
 const view1 = new GlassView({
   canvas: canvas1,
   shape: smallShape,
   liquidProfile: smallLiquid,
   rich: SMALL_GLASS_RICH,
-  interactive: false,
+  interactive: true,
 });
 const view2 = new GlassView({
   canvas: canvas2,
   shape: smallShape,
   liquidProfile: smallLiquid,
   rich: SMALL_GLASS_RICH,
-  interactive: false,
+  interactive: true,
 });
 
 // ----------------------------------------------------------------------------
@@ -400,13 +402,17 @@ function showTab(tab: 'settings' | 'result'): void {
   btnResult.classList.toggle('active', !isSettings);
 
   if (isSettings) {
-    // 結果の常時ループを止める。小グラスは表示後にサイズを合わせて1回描く。
+    // 結果の常時ループを止める。小グラスは表示後にサイズを合わせてループ開始
+    //   （interactive＝ドラッグで回せるよう描画ループを回す）。
     resultStop();
     view1.resize();
     view2.resize();
-    view1.renderOnce();
-    view2.renderOnce();
+    view1.start();
+    view2.start();
   } else {
+    // 設定タブを離れたら小グラスのループを止める（負荷管理）。
+    view1.stop();
+    view2.stop();
     // 結果タブ：canvas が見えてサイズが確定してからループ開始。
     resultResize();
     resultStart();

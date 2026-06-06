@@ -59,13 +59,13 @@ const DOF_MAXBLUR = IS_MOBILE ? 0.003 : dof.maxblur;
 // ----------------------------------------------------------------------------
 // 露出（全体の明るさ）（main.ts と同一）
 // ----------------------------------------------------------------------------
-const EXPOSURE = 0.7;
+export const EXPOSURE = 0.7;
 
 // ----------------------------------------------------------------------------
 // 描画解像度の上限（main.ts と同一）
 // ----------------------------------------------------------------------------
 const MAX_PIXEL_RATIO = IS_MOBILE ? 1.5 : 2;
-const PIXEL_RATIO = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
+export const PIXEL_RATIO = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
 
 // ----------------------------------------------------------------------------
 // bloom プリセット（main.ts と同一）
@@ -292,6 +292,177 @@ const WHITE_SAT_T = 0.3;
 export const INITIAL_DENSITY =
   (ATTEN_MAX_DIST - 2) / (ATTEN_MAX_DIST - ATTEN_MIN_DIST);
 
+// ============================================================================
+// ★ 形状に依存しない「見た目レシピ」の共有ファクトリ ★
+//   1液プログラム(buildCocktailScene) と mixer の小グラス(GlassView) の両方が
+//   これらを呼ぶことで、ガラス／液体の材質・環境マップ・後処理を“完全に同じレシピ”に
+//   そろえる（＝単一ソース。ここを変えれば両方に反映される）。
+//   ※カメラ・ライト・背景・机・影など「座標やシーン構成に依存する条件」はグラス形状
+//     ごとに違うので、ここには含めず各呼び出し側が組む。
+// ============================================================================
+
+// --- 環境マップ（RoomEnvironment をコード生成して映り込み/IBL に使う）---
+export function createEnvMap(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const pmremGenerator = new THREE.PMREMGenerator(renderer);
+  const environmentScene = new RoomEnvironment();
+  const envMap = pmremGenerator.fromScene(environmentScene).texture;
+  environmentScene.dispose();
+  pmremGenerator.dispose();
+  return envMap;
+}
+
+// --- リッチなガラス材質（透過＋IOR＋ラフネスマップ＋クリアコート。形状非依存）---
+export function createRichGlassMaterial(): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xb4cfff,
+    transparent: true,
+    opacity: 0.05,
+    transmission: 0.95,
+    ior: 1.6,
+    attenuationDistance: 4,
+    attenuationColor: new THREE.Color(0xbcd6ff),
+    roughness: 1.0,
+    roughnessMap: makeGlassRoughnessMap(),
+    metalness: 0.0,
+    envMapIntensity: 0.2,
+    clearcoat: 0.3,
+    clearcoatRoughness: 0.03,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+}
+
+// --- リッチな液体材質（透過＋吸収色＋厚み＋縦グラデshader。形状非依存）---
+//   縦グラデは渡された geometry の bounding box（上端/下端の y）を使うので、
+//   マティーニでも小グラスでも同じロジックで効く。
+export function createRichLiquidMaterial(
+  geometry: THREE.BufferGeometry,
+  useGradient: boolean,
+  initialColor: { r: number; g: number; b: number } = LIQUID_COLOR,
+): THREE.MeshPhysicalMaterial {
+  const col = new THREE.Color(
+    initialColor.r / 255,
+    initialColor.g / 255,
+    initialColor.b / 255,
+  );
+  const liquidMaterial = new THREE.MeshPhysicalMaterial({
+    color: col,
+    transparent: true,
+    opacity: LIQUID_OPACITY,
+    roughness: 0.02,
+    metalness: 0.0,
+    envMapIntensity: 0.3,
+    transmission: 0.98,
+    attenuationColor: col.clone(),
+    attenuationDistance: 2,
+    thickness: 6,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  if (useGradient) {
+    geometry.computeBoundingBox();
+    const bottomY = geometry.boundingBox!.min.y;
+    const topY = geometry.boundingBox!.max.y;
+    liquidMaterial.onBeforeCompile = (shader) => {
+      shader.uniforms.uLiquidBottom = { value: bottomY };
+      shader.uniforms.uLiquidTop = { value: topY };
+      shader.uniforms.uDensity = { value: gradient.density };
+
+      shader.vertexShader = 'varying float vLocalY;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n  vLocalY = position.y;',
+      );
+
+      shader.fragmentShader =
+        'varying float vLocalY;\nuniform float uLiquidBottom;\nuniform float uLiquidTop;\nuniform float uDensity;\n' +
+        shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        float t = clamp((uLiquidTop - vLocalY) / max(uLiquidTop - uLiquidBottom, 0.0001), 0.0, 1.0);
+        float absorb = 1.0 - exp(-uDensity * t * 1.5);
+        diffuseColor.rgb *= (1.0 - absorb * 0.6);
+        diffuseColor.a = mix(diffuseColor.a, min(diffuseColor.a + 0.3, 1.0), absorb);
+        `,
+      );
+    };
+    liquidMaterial.transparent = true;
+  }
+
+  return liquidMaterial;
+}
+
+// --- 液体の見た目を更新する中継関数を作る（color-engine 接続点）---
+//   渡した液体材質をクロージャで束ね、rgb/density/turbidity を反映する関数を返す。
+export function makeSetLiquidAppearance(
+  liquidMaterial: THREE.MeshPhysicalMaterial,
+): (
+  rgb: { r: number; g: number; b: number },
+  density: number,
+  turbidity?: number,
+) => void {
+  return (rgb, density, turbidity = 0): void => {
+    const d = Math.min(Math.max(density, 0), 1);
+    const t = Math.min(Math.max(turbidity, 0), 1);
+    const pr = rgb.r / 255;
+    const pg = rgb.g / 255;
+    const pb = rgb.b / 255;
+
+    liquidMaterial.attenuationColor.setRGB(pr, pg, pb);
+    liquidMaterial.attenuationDistance =
+      ATTEN_MAX_DIST - (ATTEN_MAX_DIST - ATTEN_MIN_DIST) * d;
+
+    liquidMaterial.transmission = BASE_TRANSMISSION * (1.0 - t);
+
+    const whiteAmt = WHITE_MAX * Math.min(t / WHITE_SAT_T, 1);
+    liquidMaterial.color.setRGB(
+      pr + (MILK_WHITE - pr) * whiteAmt,
+      pg + (MILK_WHITE - pg) * whiteAmt,
+      pb + (MILK_WHITE - pb) * whiteAmt,
+    );
+
+    const ease = 1 - (1 - t) * (1 - t);
+    liquidMaterial.roughness = BASE_ROUGHNESS + (0.95 - BASE_ROUGHNESS) * ease;
+    liquidMaterial.specularIntensity = BASE_SPECULAR_INTENSITY * (1 - 0.9 * ease);
+    liquidMaterial.envMapIntensity = BASE_ENVMAP_INTENSITY * (1 - 0.85 * ease);
+  };
+}
+
+// --- 後処理（bloom ＋ 任意で DOF ＋ Output）を composer に追加する ---
+//   RenderPass は呼び出し側で先に追加しておくこと（順序：Render→Bloom→DOF→Output）。
+//   focus（DOF の合焦距離）はカメラ距離が違うので引数で渡す（既定はマティーニ用）。
+export function addPostProcessing(
+  composer: EffectComposer,
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  width: number,
+  height: number,
+  opts: { useDof?: boolean; focus?: number } = {},
+): { bloomPass: UnrealBloomPass; bokehPass: BokehPass | null } {
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(width, height),
+    BLOOM_STRENGTH,
+    bloom.radius,
+    bloom.threshold,
+  );
+  composer.addPass(bloomPass);
+
+  let bokehPass: BokehPass | null = null;
+  if (opts.useDof ?? USE_DOF) {
+    bokehPass = new BokehPass(scene, camera, {
+      focus: opts.focus ?? FOCUS_DISTANCE,
+      aperture: dof.aperture,
+      maxblur: DOF_MAXBLUR,
+    });
+    composer.addPass(bokehPass);
+  }
+
+  composer.addPass(new OutputPass());
+  return { bloomPass, bokehPass };
+}
+
 // ----------------------------------------------------------------------------
 // シーン一式の返り値の型
 // ----------------------------------------------------------------------------
@@ -334,13 +505,8 @@ export function buildCocktailScene(
   const scene = new THREE.Scene();
   scene.background = makeBackgroundTexture(BACKGROUND_PRESET);
 
-  // --- 環境マップ（映り込み）---
-  const pmremGenerator = new THREE.PMREMGenerator(renderer);
-  const environmentScene = new RoomEnvironment();
-  const envMap = pmremGenerator.fromScene(environmentScene).texture;
-  scene.environment = envMap;
-  environmentScene.dispose();
-  pmremGenerator.dispose();
+  // --- 環境マップ（映り込み）--- ※共有ファクトリで生成（小グラスと同一レシピ）
+  scene.environment = createEnvMap(renderer);
 
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(
@@ -388,119 +554,20 @@ export function buildCocktailScene(
   scene.add(stemSpot);
   scene.add(stemSpot.target);
 
-  // --- グラス本体 ---
+  // --- グラス本体 --- ※材質は共有ファクトリ（小グラスと同一レシピ）
   const glassGeometry = new THREE.LatheGeometry(GLASS_PROFILE, 64);
-  const glassMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xb4cfff,
-    transparent: true,
-    opacity: 0.05,
-    transmission: 0.95,
-    ior: 1.6,
-    attenuationDistance: 4,
-    attenuationColor: new THREE.Color(0xbcd6ff),
-    roughness: 1.0,
-    roughnessMap: makeGlassRoughnessMap(),
-    metalness: 0.0,
-    envMapIntensity: 0.2,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.03,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
+  const glassMaterial = createRichGlassMaterial();
   const glass = new THREE.Mesh(glassGeometry, glassMaterial);
   scene.add(glass);
 
-  // --- 液体 ---
+  // --- 液体 --- ※材質＋縦グラデは共有ファクトリ（小グラスと同一レシピ）
   const liquidGeometry = new THREE.LatheGeometry(LIQUID_PROFILE, 64);
-  const liquidMaterial = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color(
-      LIQUID_COLOR.r / 255,
-      LIQUID_COLOR.g / 255,
-      LIQUID_COLOR.b / 255,
-    ),
-    transparent: true,
-    opacity: LIQUID_OPACITY,
-    roughness: 0.02,
-    metalness: 0.0,
-    envMapIntensity: 0.3,
-    transmission: 0.98,
-    attenuationColor: new THREE.Color(
-      LIQUID_COLOR.r / 255,
-      LIQUID_COLOR.g / 255,
-      LIQUID_COLOR.b / 255,
-    ),
-    attenuationDistance: 2,
-    thickness: 6,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-
-  liquidGeometry.computeBoundingBox();
-  const LIQUID_BOTTOM_Y = liquidGeometry.boundingBox!.min.y;
-  const LIQUID_TOP_Y = liquidGeometry.boundingBox!.max.y;
-
-  if (USE_GRADIENT) {
-    liquidMaterial.onBeforeCompile = (shader) => {
-      shader.uniforms.uLiquidBottom = { value: LIQUID_BOTTOM_Y };
-      shader.uniforms.uLiquidTop = { value: LIQUID_TOP_Y };
-      shader.uniforms.uDensity = { value: gradient.density };
-
-      shader.vertexShader = 'varying float vLocalY;\n' + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <begin_vertex>',
-        '#include <begin_vertex>\n  vLocalY = position.y;',
-      );
-
-      shader.fragmentShader =
-        'varying float vLocalY;\nuniform float uLiquidBottom;\nuniform float uLiquidTop;\nuniform float uDensity;\n' +
-        shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-        float t = clamp((uLiquidTop - vLocalY) / max(uLiquidTop - uLiquidBottom, 0.0001), 0.0, 1.0);
-        float absorb = 1.0 - exp(-uDensity * t * 1.5);
-        diffuseColor.rgb *= (1.0 - absorb * 0.6);
-        diffuseColor.a = mix(diffuseColor.a, min(diffuseColor.a + 0.3, 1.0), absorb);
-        `,
-      );
-    };
-    liquidMaterial.transparent = true;
-  }
-
+  const liquidMaterial = createRichLiquidMaterial(liquidGeometry, USE_GRADIENT);
   const liquid = new THREE.Mesh(liquidGeometry, liquidMaterial);
   scene.add(liquid);
 
-  // --- 中継関数 setLiquidAppearance（main.ts と同一ロジック）---
-  const setLiquidAppearance = (
-    rgb: { r: number; g: number; b: number },
-    density: number,
-    turbidity: number = 0,
-  ): void => {
-    const d = Math.min(Math.max(density, 0), 1);
-    const t = Math.min(Math.max(turbidity, 0), 1);
-    const pr = rgb.r / 255;
-    const pg = rgb.g / 255;
-    const pb = rgb.b / 255;
-
-    liquidMaterial.attenuationColor.setRGB(pr, pg, pb);
-    liquidMaterial.attenuationDistance =
-      ATTEN_MAX_DIST - (ATTEN_MAX_DIST - ATTEN_MIN_DIST) * d;
-
-    liquidMaterial.transmission = BASE_TRANSMISSION * (1.0 - t);
-
-    const whiteAmt = WHITE_MAX * Math.min(t / WHITE_SAT_T, 1);
-    liquidMaterial.color.setRGB(
-      pr + (MILK_WHITE - pr) * whiteAmt,
-      pg + (MILK_WHITE - pg) * whiteAmt,
-      pb + (MILK_WHITE - pb) * whiteAmt,
-    );
-
-    const ease = 1 - (1 - t) * (1 - t);
-    liquidMaterial.roughness =
-      BASE_ROUGHNESS + (0.95 - BASE_ROUGHNESS) * ease;
-    liquidMaterial.specularIntensity = BASE_SPECULAR_INTENSITY * (1 - 0.9 * ease);
-    liquidMaterial.envMapIntensity = BASE_ENVMAP_INTENSITY * (1 - 0.85 * ease);
-  };
+  // --- 中継関数 setLiquidAppearance（共有ファクトリ。main.ts と同一ロジック）---
+  const setLiquidAppearance = makeSetLiquidAppearance(liquidMaterial);
 
   // --- 木の机（main.ts と同一）---
   const woodTexture = makeWoodTexture();
@@ -543,30 +610,19 @@ export function buildCocktailScene(
   backBar.position.set(0, 0.5, -9);
   scene.add(backBar);
 
-  // --- 後処理（bloom + DOF + Output）（main.ts と同一）---
+  // --- 後処理（bloom + DOF + Output）（共有ファクトリ。main.ts と同一）---
   const composer = new EffectComposer(renderer);
   composer.setPixelRatio(PIXEL_RATIO);
   composer.addPass(new RenderPass(scene, camera));
 
-  const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    BLOOM_STRENGTH,
-    bloom.radius,
-    bloom.threshold,
+  const { bloomPass, bokehPass } = addPostProcessing(
+    composer,
+    scene,
+    camera,
+    window.innerWidth,
+    window.innerHeight,
+    { useDof: USE_DOF, focus: FOCUS_DISTANCE },
   );
-  composer.addPass(bloomPass);
-
-  let bokehPass: BokehPass | null = null;
-  if (USE_DOF) {
-    bokehPass = new BokehPass(scene, camera, {
-      focus: FOCUS_DISTANCE,
-      aperture: dof.aperture,
-      maxblur: DOF_MAXBLUR,
-    });
-    composer.addPass(bokehPass);
-  }
-
-  composer.addPass(new OutputPass());
 
   // --- 描画サイズ更新 ---
   const resize = (w: number, h: number, updateStyle = true): void => {
