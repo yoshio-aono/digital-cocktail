@@ -770,6 +770,38 @@ const INITIAL_DENSITY =
 const INITIAL_TURBIDITY = 0; // 起動時は澄んだ透明（従来の見た目）
 setLiquidAppearance(INITIAL_RGB, INITIAL_DENSITY, INITIAL_TURBIDITY);
 
+// ----------------------------------------------------------------------------
+// ★ スマホでパネルを開いたときのカメラ寄せ ★ — スマホ表示のときだけ
+//   スマホでパネルを開くと画面の右側が隠れてしまう。そこでパネルを開いている間だけ、
+//   グラスを左の空きスペースへ寄せ、さらに少し引いて（ズームアウト）全体を見やすくする。
+//   ・setViewOffset … カメラの描画範囲を「ずらす」機能。横方向のオフセットを正にすると
+//     描画が左へずれる＝グラスが左に寄る。画面ピクセル基準なので端末の縦横比に依存せず安定。
+//   ・camera.zoom   … 1=標準 / 1未満で引き（全体が小さく収まる）。
+//   ※OrbitControls の回転中心（グラス）は動かさないので、回転・操作は今までどおり。
+//   ※PC（IS_MOBILE===false）では何もしない＝従来と完全に同じ。
+// ----------------------------------------------------------------------------
+const PANEL_VIEW_SHIFT = 0.24; // 画面幅に対して左へずらす割合（大きいほど左へ寄る）
+const PANEL_VIEW_ZOOM = 0.78; // パネルを開いた時のズーム（1=標準 / 小さいほど引く）
+let isPanelOpen = false; // パネルが今開いているか（リサイズ時の再適用に使う）
+
+// open=true でパネルを開いたときのビュー（左寄せ＋引き）、false で元に戻す。
+function applyPanelView(open: boolean): void {
+  isPanelOpen = open;
+  if (!IS_MOBILE) return; // ★スマホのときだけ効かせる（PCは何もしない）
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (open) {
+    camera.zoom = PANEL_VIEW_ZOOM; // 少し引いて全体を収める
+    // 横オフセットを正にして描画を左へずらす（グラスが左の空きスペースへ寄る）。
+    // setViewOffset の中で updateProjectionMatrix が呼ばれるので zoom もここで反映される。
+    camera.setViewOffset(w, h, w * PANEL_VIEW_SHIFT, 0, w, h);
+  } else {
+    camera.clearViewOffset(); // ずらしを解除（中央に戻す）
+    camera.zoom = 1; // ズームも標準へ戻す
+    camera.updateProjectionMatrix(); // 変更を確定
+  }
+}
+
 // --- 操作UIを起動 -----------------------------------------------------------
 //   UIは値を集めるだけで、3Dへの反映は onChange → setLiquidAppearance に任せる。
 //   将来 color-engine をつなぐときは、この UI の代わりに mixCocktail() の出力を
@@ -780,6 +812,8 @@ createLiquidUI({
   initialTurbidity: INITIAL_TURBIDITY,
   onChange: (rgb, density, turbidity) =>
     setLiquidAppearance(rgb, density, turbidity),
+  // パネルの開閉に合わせてスマホ時のカメラ寄せを切り替える。
+  onToggle: (open) => applyPanelView(open),
 });
 
 // ============================================================================
@@ -962,4 +996,7 @@ window.addEventListener('resize', () => {
   composer.setSize(w, h); // 後処理の作業バッファも同じサイズに
   bloomPass.setSize(w, h); // bloom の解像度も追従
   if (bokehPass) bokehPass.setSize(w, h); // DOF の作業バッファも追従
+  // パネルを開いている間のビュー寄せはピクセル基準なので、サイズが変わったら
+  // 新しい画面幅で計算し直す（回転や端末回転で崩れないように）。
+  if (IS_MOBILE && isPanelOpen) applyPanelView(true);
 });

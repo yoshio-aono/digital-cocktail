@@ -24,6 +24,9 @@ export interface LiquidUIOptions {
     density: number,
     turbidity: number,
   ) => void;
+  // パネルを開いた/閉じたときに呼ばれるコールバック（任意）。
+  //   open=true で開いた、false で閉じた。main.ts 側でスマホ時のカメラ寄せに使う。
+  onToggle?: (open: boolean) => void;
 }
 
 // --- 色変換ヘルパー ---------------------------------------------------------
@@ -176,9 +179,12 @@ export function createLiquidUI(options: LiquidUIOptions): void {
   // 開閉状態。スマホ幅(768px以下)では初期は閉じておく（描画を邪魔しないため）。
   let collapsed = window.innerWidth <= 768;
   // 現在の collapsed に合わせて、中身の表示とキャレットの向きを更新する。
+  //   開閉が変わるたびに onToggle(open) も呼んで、main.ts 側へ状態を伝える。
   function applyCollapsed(): void {
     content.style.display = collapsed ? 'none' : 'block';
     caret.textContent = collapsed ? '▶' : '▼';
+    // open = 開いているか（collapsed の反対）。スマホ時のカメラ寄せに使われる。
+    options.onToggle?.(!collapsed);
   }
   applyCollapsed(); // 初期状態を反映
   // ヘッダーのクリック/タップで開閉をトグルする。
