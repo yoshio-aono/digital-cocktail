@@ -110,15 +110,15 @@ export function buildSmallGlassShape(spec: SmallGlassSpec): GlassShape {
   //   ★少しだけ見下ろし：カメラを高めに上げつつ注視点をリム寄りに上げると、
   //     グラス上部の液面がほんの少し覗く程度の俯角になる。
   const cy = height * 0.5; // グラスの中ほど（高さの基準）
-  const dist = height * 2.6 + 1.6; // 高いグラスほど少し引く
+  const dist = height * 2.0 + 1.0; // 高いグラスほど少し引く（さらに寄り＝ズームイン）
   return {
     profile,
     innerBottom: new THREE.Vector2(innerBaseR, innerBottomY),
     innerRim: new THREE.Vector2(innerTopR, height),
-    // カメラ位置を高くし、注視点もリム寄り（中ほどより上）へ。これで俯角が付き、
-    // 液面が少し見える。引きすぎ・見下ろしすぎないよう控えめな係数にする。
-    cameraPos: [0, cy + height * 0.95, dist],
-    cameraTarget: [0, height * 0.7, 0],
+    // カメラを高めに上げ、注視点はグラス中ほど。適度な俯角で液面の楕円が見え、
+    // グラスが画面中央に程よい大きさで収まる初期アングル。
+    cameraPos: [0, cy + height * 1.05, dist],
+    cameraTarget: [0, height * 0.55, 0],
   };
 }
 
