@@ -124,6 +124,90 @@ export function mixTwoLiquids(
 }
 
 // ----------------------------------------------------------------------------
+// ★ 本体：N液一括混合（最大5液）★  ※既存 mixTwoLiquids は無改変で残す。
+//   開発(3) N液化で新設。逐次2液混色（reduce）だと混ぜる順序で結果が変わるため、
+//   N本を「一括の加重平均」で混ぜる＝順序非依存にする。物理モデルには寄せず HSV幾何のまま。
+//
+//   入力：liquids（N本のパラメータ）, vols（各本の量。ml正規化済みの重み）, w（希釈率）
+//   出力：混合結果の LiquidParams
+//
+//   手順：
+//     1. 色相＝加重 circular mean。各色相を単位ベクトル(cosθ,sinθ)にし、量を重みに合成して
+//        atan2 で平均色相を得る（円周上で正しく平均。単純平均の破綻を避ける）。
+//     2. sat / val / density / turbidity＝量を重みとした加重平均（Σw·x / Σw）。
+//     3. 濁りボーナス＝円周分散(1 - R)。R は合成ベクトル長を総重みで正規化した値(0〜1)で、
+//        色相がまとまっていれば R≈1（分散0＝澄む）、バラけていれば R≈0（分散1＝濁る）。
+//        単液（量が1本だけ）は R=1 で自動的にボーナス0になる＝特例分岐は不要。
+//     4. 希釈＝density / turbidity に ×(1 - w) を掛ける（w は MAX_DILUTION で頭打ち）。
+//
+//   ※2液に縮約しても既存 mixTwoLiquids（短弧補間＋色相差×mixAmount）と完全一致はしないが、
+//     N本でより自然・順序非依存になる。承知の上で採用（開発(3)の確定方針）。
+// ----------------------------------------------------------------------------
+export function mixLiquids(
+  liquids: LiquidParams[],
+  vols: number[],
+  w: number,
+): LiquidParams {
+  // 総重み（負の量は0扱い）。
+  let W = 0;
+  for (const v of vols) W += Math.max(v, 0);
+
+  // 重みが無い（全量0）＝空。呼び出し側で空グラス扱いにする前提の中立値を返す。
+  if (W <= 0) {
+    return { hue: 0, sat: 0, val: 1, density: 0, turbidity: 0 };
+  }
+
+  // 各軸を量で加重合計する。色相だけは単位ベクトルに分解して合成する。
+  let sx = 0; // Σ w·cosθ
+  let sy = 0; // Σ w·sinθ
+  let sSat = 0;
+  let sVal = 0;
+  let sDen = 0;
+  let sTur = 0;
+  for (let i = 0; i < liquids.length; i++) {
+    const wi = Math.max(vols[i] ?? 0, 0);
+    if (wi <= 0) continue; // 量0のスロットは寄与なし
+    const l = liquids[i];
+    const rad = (l.hue * Math.PI) / 180;
+    sx += wi * Math.cos(rad);
+    sy += wi * Math.sin(rad);
+    sSat += wi * l.sat;
+    sVal += wi * l.val;
+    sDen += wi * l.density;
+    sTur += wi * l.turbidity;
+  }
+
+  // 1. 加重 circular mean で平均色相（0〜360 に正規化）。
+  let hue = (Math.atan2(sy, sx) * 180) / Math.PI;
+  hue = ((hue % 360) + 360) % 360;
+
+  // 2. 残りの軸は単純な加重平均。
+  const sat = sSat / W;
+  const val = sVal / W;
+  let density = sDen / W;
+  let turbidity = sTur / W;
+
+  // 3. 濁りボーナス＝円周分散(1 - R)。R は合成ベクトル長を総重みで正規化（0〜1）。
+  //    色相がバラけているほど（1-R が大きいほど）turbidity を上乗せ。最大量は TURBIDITY_BONUS。
+  const R = Math.sqrt(sx * sx + sy * sy) / W; // 0〜1
+  const circularVariance = 1 - R; // 0〜1（単液なら R=1 で 0＝ボーナスなし）
+  turbidity += TURBIDITY_BONUS * circularVariance;
+
+  // 4. 水による希釈：density / turbidity を ×(1 - w) で減衰（w は MAX_DILUTION で頭打ち）。
+  const wc = Math.min(Math.max(w, 0), MAX_DILUTION);
+  density *= 1 - wc;
+  turbidity *= 1 - wc;
+
+  return {
+    hue,
+    sat: clamp01(sat),
+    val: clamp01(val),
+    density: clamp01(density),
+    turbidity: clamp01(turbidity),
+  };
+}
+
+// ----------------------------------------------------------------------------
 // ★ HSV（色相・彩度・明度）→ RGB（0〜255）★
 //   簡略色エンジンは色を HSV で持つが、3Dの液体マテリアルは RGB を欲しがる
 //   （setAppearance(rgb, ...) に渡すため）。ここで HSV を RGB に変換する。
