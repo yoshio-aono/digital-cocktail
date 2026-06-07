@@ -322,6 +322,49 @@ function resultResize(): void {
   resultSc.resize(resultCanvas.clientWidth, resultCanvas.clientHeight, false);
 }
 
+// ----------------------------------------------------------------------------
+// ★ 結果ビューで「混合結果」パネルを開いたときのカメラ調整 ★（1液 main.ts と同じ）
+//   スマホでパネルを開くと右側がパネルで隠れるので、開いている間だけカメラを動かし・
+//   ズーム・描画を左へ寄せて、グラス全体を左の空きスペースに収める。PCでは何もしない。
+//   ※座標・ズーム・寄せ量は1液プログラム(main.ts)と同一値（同じマティーニシーンのため）。
+// ----------------------------------------------------------------------------
+const IS_MOBILE = window.innerWidth <= 768;
+const PANEL_CAM_POS = new THREE.Vector3(0, 5.5, 7.0); // 開いた時のカメラ座標
+const PANEL_VIEW_ZOOM = 0.9; // ズーム率（1=標準）
+const PANEL_VIEW_SHIFT = 0.26; // 左へずらす割合（画面幅比）
+
+let isResultPanelOpen = false; // 混合結果パネルが今開いているか（リサイズ時の再適用に使う）
+// 「開く直前」のカメラ座標とズームを覚えておき、閉じたら元に戻す入れ物。
+const savedResultCam = {
+  pos: resultSc.camera.position.clone(),
+  zoom: resultSc.camera.zoom,
+};
+
+function applyResultPanelView(open: boolean): void {
+  isResultPanelOpen = open;
+  if (!IS_MOBILE) return; // スマホのときだけ効かせる
+  const cam = resultSc.camera;
+  const w = resultCanvas.clientWidth;
+  const h = resultCanvas.clientHeight;
+  const alreadyShifted = cam.view !== null && cam.view.enabled;
+  if (open) {
+    if (w === 0 || h === 0) return; // 結果タブ非表示中（サイズ未確定）は何もしない
+    if (!alreadyShifted) {
+      savedResultCam.pos.copy(cam.position);
+      savedResultCam.zoom = cam.zoom;
+    }
+    cam.position.copy(PANEL_CAM_POS);
+    cam.zoom = PANEL_VIEW_ZOOM;
+    // 描画を左へ寄せる（fullW/fullH はこの結果canvasの実寸を使う）。
+    cam.setViewOffset(w, h, w * PANEL_VIEW_SHIFT, 0, w, h);
+  } else {
+    cam.clearViewOffset();
+    cam.position.copy(savedResultCam.pos);
+    cam.zoom = savedResultCam.zoom;
+    cam.updateProjectionMatrix();
+  }
+}
+
 // 結果の数値表示パネル＝1液プログラムと同じUI（readonly＝混合結果で固定表示）。
 //   resultPanel に載せるので、結果タブが非表示のときは一緒に隠れる。
 //   操作は受け付けず、値は onChange から setValues で流し込む。
@@ -333,6 +376,10 @@ const resultUI: LiquidUIHandle = createLiquidUI({
   title: '混合結果',
   mount: resultPanel,
   readonly: true,
+  // 上部のタブバー（sticky・高さ約47px）に重ならないよう、パネルを下げる。
+  fixedTop: '64px',
+  // パネル開閉でグラスをずらす（スマホ時のみ。1液 main.ts と同じ挙動）。
+  onToggle: (open) => applyResultPanelView(open),
 });
 
 // ----------------------------------------------------------------------------
@@ -415,6 +462,8 @@ function showTab(tab: 'settings' | 'result'): void {
     view2.stop();
     // 結果タブ：canvas が見えてサイズが確定してからループ開始。
     resultResize();
+    // パネルが開いた状態で結果タブに来たら、左寄せビューを（サイズ確定後に）再適用。
+    if (IS_MOBILE && isResultPanelOpen) applyResultPanelView(true);
     resultStart();
   }
 }
@@ -433,6 +482,8 @@ window.addEventListener('resize', () => {
     view2.renderOnce();
   } else {
     resultResize();
+    // 開いている間の左寄せビューはピクセル基準なので、サイズ変更時に再計算。
+    if (IS_MOBILE && isResultPanelOpen) applyResultPanelView(true);
   }
 });
 

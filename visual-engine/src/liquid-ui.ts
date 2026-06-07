@@ -48,6 +48,10 @@ export interface LiquidUIOptions {
   // 見出し（開閉ヘッダー）を出すか（任意・既定 true）。false で見出しと開閉を省き、
   //   中身を常に開いた状態で出す（外側で別の折りたたみを持つ埋め込み用途向け）。
   showHeader?: boolean;
+  // 浮きパネル（非 embedded）の上端位置（任意・既定 '16px'）。
+  //   mixer の結果ビューのように上部にタブバーがある画面で、パネルがバーに
+  //   重ならないよう下げるために使う（CSS の top に入る文字列）。
+  fixedTop?: string;
 }
 
 // createLiquidUI が返す操作ハンドル。
@@ -188,7 +192,7 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
         ]
       : [
           'position:fixed',
-          'top:16px',
+          'top:' + (options.fixedTop ?? '16px'),
           'right:16px',
           'z-index:10', // 3Dキャンバスより手前に出す
           'padding:14px',
