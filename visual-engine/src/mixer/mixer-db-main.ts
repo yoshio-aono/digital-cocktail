@@ -311,22 +311,23 @@ methodRow.append(methodLabel, methodSel);
 // 材料行（材料N＋量）の入れ物。スロット増減でここに行を出し入れする。
 const slotRecipeContainer = el('div');
 
-// 「材料を追加する」ボタン。
-const addBtn = el('button', 'add-btn');
-addBtn.type = 'button';
-addBtn.textContent = '＋ 材料を追加する';
-addBtn.addEventListener('click', () => addSlot());
-
 // 状態表示（読み込み中・エラー用）。
 const recipeStatus = el('div', 'recipe-status');
 
-recipeBody.append(methodRow, slotRecipeContainer, addBtn, recipeStatus);
+recipeBody.append(methodRow, slotRecipeContainer, recipeStatus);
 const recipeBlock = makeBlock('レシピ設定', recipeBody);
 
 // 液体ブロック群の入れ物。スロット増減でここにブロックを出し入れする。
 const liquidBlocksContainer = el('div');
 
-settingsPanel.append(recipeBlock.block, liquidBlocksContainer);
+// 「材料を追加する」ボタン。レシピ設定の折りたたみに埋もれて見つけにくいので、
+// 設定パネル直下（液体ブロックの下）に常時表示で置く。
+const addBtn = el('button', 'add-btn');
+addBtn.type = 'button';
+addBtn.textContent = '＋ 材料を追加する';
+addBtn.addEventListener('click', () => addSlot());
+
+settingsPanel.append(recipeBlock.block, liquidBlocksContainer, addBtn);
 
 // --- 結果パネル ---
 const resultPanel = el('div', 'panel');
