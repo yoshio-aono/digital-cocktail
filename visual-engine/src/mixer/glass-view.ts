@@ -230,6 +230,51 @@ export class GlassView {
   }
 
   // ----------------------------------------------------------------------
+  // ★ 破棄（dispose）★ — 動的にスロットを増減する N液ビューアー用。
+  //   このビューは1つの WebGLRenderer（＝1つの WebGLコンテキスト）を持つ。スロット削除や
+  //   タブ非表示で不要になったら、確実に GPU リソースを解放してリーク／コンテキストロスを防ぐ。
+  //   ・描画ループを止める
+  //   ・シーン内の全 geometry / material を dispose
+  //   ・環境マップ（IBLテクスチャ）を dispose
+  //   ・後処理（EffectComposer のレンダーターゲット群）を dispose
+  //   ・OrbitControls を dispose
+  //   ・renderer を dispose し、WebGLコンテキストを明示的に手放す
+  //   破棄後は再利用しない（呼び出し側で参照を捨て、必要なら作り直す）。
+  // ----------------------------------------------------------------------
+  dispose(): void {
+    this.stop();
+
+    // シーン内の Mesh の geometry / material をすべて解放する。
+    this.scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else if (mat) mat.dispose();
+    });
+
+    // 環境マップ（createEnvMap が返したテクスチャ）を解放する。
+    if (this.scene.environment) {
+      this.scene.environment.dispose();
+      this.scene.environment = null;
+    }
+
+    // 後処理パス群（レンダーターゲット）を解放する。
+    this.composer.dispose();
+
+    // マウス操作（あれば）を解放する。
+    if (this.controls) {
+      this.controls.dispose();
+      this.controls = null;
+    }
+
+    // レンダラーを解放し、WebGLコンテキストを明示的に手放す
+    //   （ブラウザのコンテキスト上限に達してロストするのを防ぐ）。
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+  }
+
+  // ----------------------------------------------------------------------
   // canvas の表示サイズ（CSSピクセル）に描画解像度を合わせる。
   // ----------------------------------------------------------------------
   resize(): void {
