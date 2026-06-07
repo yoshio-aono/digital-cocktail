@@ -122,6 +122,9 @@ export class GlassView {
     this.camera.position.set(cx, cy, cz);
     const [tx, ty, tz] = opts.shape.cameraTarget;
     this.camera.lookAt(tx, ty, tz);
+    // グラスを少し小さめに表示（zoom<1 で引いた見え方になる。90%程度）。
+    this.camera.zoom = 0.9;
+    this.camera.updateProjectionMatrix();
 
     // --- ライト（環境/方向/半球は使わず、スポット2灯。グラス高さ基準で自動配置）---
     //   H＝グラス上端（リム）の高さ、cyc＝グラス中心の高さ。これらを基準に、
