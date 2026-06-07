@@ -368,6 +368,10 @@ export function createRichLiquidMaterial(
       shader.uniforms.uLiquidBottom = { value: bottomY };
       shader.uniforms.uLiquidTop = { value: topY };
       shader.uniforms.uDensity = { value: gradient.density };
+      // ★ 縦グラデの吸光強度(uDensity)を setLiquidAppearance から動的に更新できるよう、
+      //   uniform 参照と基準値を material に持たせておく（希釈で薄まるのを見た目に効かせる）。
+      liquidMaterial.userData.gradientUniform = shader.uniforms.uDensity;
+      liquidMaterial.userData.gradientBaseDensity = gradient.density;
 
       shader.vertexShader = 'varying float vLocalY;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace(
@@ -413,6 +417,17 @@ export function makeSetLiquidAppearance(
     liquidMaterial.attenuationColor.setRGB(pr, pg, pb);
     liquidMaterial.attenuationDistance =
       ATTEN_MAX_DIST - (ATTEN_MAX_DIST - ATTEN_MIN_DIST) * d;
+
+    // ★ 縦グラデの吸光強度も density に追従させる（希釈＝density低下を見た目に効かせる）。
+    //   起動時の density（INITIAL_DENSITY）で基準値そのままになるよう正規化するので、
+    //   既定の見た目（1液プログラム含む）は不変。薄めたときだけ確実に透明寄りになる。
+    const gradUniform = liquidMaterial.userData.gradientUniform as
+      | { value: number }
+      | undefined;
+    if (gradUniform) {
+      const base = (liquidMaterial.userData.gradientBaseDensity as number) ?? 1;
+      gradUniform.value = base * (d / INITIAL_DENSITY);
+    }
 
     liquidMaterial.transmission = BASE_TRANSMISSION * (1.0 - t);
 
