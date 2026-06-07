@@ -169,11 +169,12 @@ export function createLiquidUI(options: LiquidUIOptions): LiquidUIHandle {
   const HUE_H = 16; // 色相バーの高さ(px)
 
   // 文字サイズ。スマホは小さい画面でも読めるよう、全体を少し大きめにする。
-  //   PCは従来の値（13/12/11px）のまま。
-  const FONT_HEADER = IS_MOBILE ? 15 : 13; // ヘッダー（タイトル）
-  const FONT_CARET = IS_MOBILE ? 13 : 11; // 開閉キャレット（▼▶）
-  const FONT_LABEL = IS_MOBILE ? 14 : 12; // スライダーのラベル
-  const FONT_READOUT = IS_MOBILE ? 13 : 11; // 現在値の表示
+  //   視認性向上のため、PC・スマホとも従来より +2px ずつ底上げしている
+  //   （1液ビューアーと mixer の両方に共通で効く）。
+  const FONT_HEADER = IS_MOBILE ? 17 : 15; // ヘッダー（タイトル）
+  const FONT_CARET = IS_MOBILE ? 15 : 13; // 開閉キャレット（▼▶）
+  const FONT_LABEL = IS_MOBILE ? 16 : 14; // スライダーのラベル
+  const FONT_READOUT = IS_MOBILE ? 15 : 13; // 現在値の表示
 
   // ------------------------------------------------------------------
   // 1) パネルの外枠

@@ -145,26 +145,26 @@ function injectStyle(): void {
        タブバーは position:sticky でスクロールしても上に残る。 */
     body { margin: 0; font-family: system-ui, sans-serif; background: #0e0e12; color: #e7e7ee; }
     #tabbar { position: sticky; top: 0; z-index: 10; display: flex; background: #16161c; border-bottom: 1px solid #2a2a33; }
-    #tabbar button { flex: 1; padding: 14px; background: transparent; border: none; color: #9a9aa8; font-size: 15px; cursor: pointer; }
+    #tabbar button { flex: 1; padding: 14px; background: transparent; border: none; color: #9a9aa8; font-size: 17px; cursor: pointer; }
     #tabbar button.active { color: #fff; border-bottom: 2px solid #6da8ff; background: #1d1d25; }
     .panel { display: none; }
     .panel.active { display: block; }
     /* 開いたパネルで下が切れてもスクロールで届くよう、下端に余白を足す。 */
     #tab-settings { padding: 12px 12px 48px; max-width: 560px; margin: 0 auto; }
     .block { border: 1px solid #2a2a33; border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
-    .block-header { width: 100%; text-align: left; padding: 12px 14px; background: #1a1a21; border: none; color: #cfcfe0; font-size: 14px; cursor: pointer; }
+    .block-header { width: 100%; text-align: left; padding: 12px 14px; background: #1a1a21; border: none; color: #cfcfe0; font-size: 16px; cursor: pointer; }
     .block-body { padding: 12px 14px; }
     /* 液体ブロック本体＝左:グラスプレビュー / 右:色設定パネル の2カラム */
     .liquid-body { display: flex; gap: 14px; align-items: stretch; }
     .glass-col { flex: 1 1 0; min-width: 0; display: flex; }
     .small-glass { flex: 1; width: 100%; min-height: 240px; display: block; border-radius: 8px; background: #15151b; }
     .slider-row { margin: 12px 0; }
-    .slider-head { display: flex; justify-content: space-between; font-size: 13px; color: #b7b7c6; margin-bottom: 4px; }
+    .slider-head { display: flex; justify-content: space-between; font-size: 15px; color: #b7b7c6; margin-bottom: 4px; }
     .slider-val { color: #fff; font-variant-numeric: tabular-nums; }
     input[type=range] { width: 100%; }
     /* スライダー直下の数字表示（液体1:90% 液体2:10% / 希釈率;3.5倍）。
        視認性を高めるため赤っぽい文字色にする。 */
-    .mix-readout { font-size: 13px; color: #ff7a7a; margin: -4px 0 2px; text-align: right; font-variant-numeric: tabular-nums; }
+    .mix-readout { font-size: 15px; color: #ff7a7a; margin: -4px 0 2px; text-align: right; font-variant-numeric: tabular-nums; }
     .loose { padding: 4px 2px 0; }
     #tab-result { position: relative; }
     #result-canvas { width: 100vw; height: calc(100vh - 52px); display: block; }
