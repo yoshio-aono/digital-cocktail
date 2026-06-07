@@ -112,9 +112,12 @@ function makeSlider(
 }
 
 // 折りたたみ可能なブロック（見出しをクリックで本体を開閉）。
+//   onToggle: 開閉のたびに呼ばれる（表示反映後に呼ぶので、開いた瞬間に中の canvas を
+//   実寸でリサイズできる）。初期は閉じた状態。
 function makeCollapsible(
   title: string,
   body: HTMLElement,
+  onToggle?: (open: boolean) => void,
 ): HTMLElement {
   const block = el('div', 'block');
   const header = el('button', 'block-header');
@@ -127,6 +130,7 @@ function makeCollapsible(
     open = !open;
     body.style.display = open ? '' : 'none';
     header.textContent = (open ? '▼ ' : '▶ ') + title;
+    onToggle?.(open); // 表示反映後に通知（開いた瞬間に実寸が取れる）
   });
   block.append(header, body);
   return block;
@@ -246,8 +250,23 @@ function makeLiquidBody(
   return body;
 }
 
-const block1 = makeCollapsible('液体1', makeLiquidBody(canvas1, uiMount1));
-const block2 = makeCollapsible('液体2', makeLiquidBody(canvas2, uiMount2));
+// 液体ブロックを開いた瞬間に小グラスを実寸でリサイズする処理。実体（view1/view2）は
+//   後で生成するので、ここでは入れ物だけ用意し、生成後に代入する（下の onLiquidBlockOpen）。
+let onLiquidBlockOpen: ((idx: 1 | 2) => void) | null = null;
+const block1 = makeCollapsible(
+  '液体1',
+  makeLiquidBody(canvas1, uiMount1),
+  (open) => {
+    if (open) onLiquidBlockOpen?.(1);
+  },
+);
+const block2 = makeCollapsible(
+  '液体2',
+  makeLiquidBody(canvas2, uiMount2),
+  (open) => {
+    if (open) onLiquidBlockOpen?.(2);
+  },
+);
 
 // 混合比率A・希釈B＝「混合パラメータ」パネル（折りたたみブロック）。一番上に置く。
 const mixBody = el('div', 'block-body');
@@ -326,6 +345,14 @@ const view2 = new GlassView({
   rich: SMALL_GLASS_RICH,
   interactive: true,
 });
+
+// 液体ブロックを開いた瞬間に、表示された canvas の実寸でリサイズ＆再描画する。
+//   （初期は閉じている＝canvas が 0px のままなので、開いた時に正しい縦横比へ直す）。
+onLiquidBlockOpen = (idx: 1 | 2): void => {
+  const v = idx === 1 ? view1 : view2;
+  v.resize();
+  v.renderOnce();
+};
 
 // ----------------------------------------------------------------------------
 // 結果ビュー：1液プログラムと「全く同じ」3D。共有モジュールで構築する。
