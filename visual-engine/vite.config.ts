@@ -16,7 +16,7 @@ export default defineConfig({
         main: 'index.html', // ルート＝2液 mixer
         single: 'single.html', // 1液ビューアー（旧 index.html）
         material: 'material-viewer.html', // 材料1件のDB→3D検証ビューアー(1a)
-        mixerDb: 'mixer-db.html', // DB材料選択式の2液混合ビューアー(2)
+        mixerDb: 'mixer-db.html', // DB材料選択式のN液混合ビューアー(2→3でN液化)
       },
     },
   },
