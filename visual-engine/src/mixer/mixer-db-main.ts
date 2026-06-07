@@ -70,7 +70,7 @@ const MAX_SLOTS = 5;
 const WATER_RATIO = 0.375;
 
 // 量プルダウンの選択肢（単位ごと）。1 tsp = 5 ml。
-const ML_AMOUNTS = [0, 10, 20, 30, 40, 50, 60];
+const ML_AMOUNTS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
 const TSP_AMOUNTS = [0, 1, 2, 3, 4, 5];
 
 // 空グラス（液体なし）の見た目。density 0＝吸光ゼロ＝透明。
@@ -456,7 +456,7 @@ function buildSlot(): Slot {
   const canvasHolder = el('div', 'glass-col');
   body.append(canvasHolder, selectCol);
 
-  const { block, setTitle } = makeBlock('液体', body, (open) => {
+  const { block, setTitle } = makeBlock('材料', body, (open) => {
     slot.blockOpen = open;
     if (open && slot.view) {
       slot.view.resize();
@@ -617,7 +617,7 @@ function removeSlot(slot: Slot): void {
 // 「液体N」「材料N」の番号を現在の並び順で振り直す。
 function renumberSlots(): void {
   slots.forEach((s, i) => {
-    s.setBlockTitle(`液体${i + 1}`);
+    s.setBlockTitle(`材料${i + 1}`);
     s.rtitle.textContent = `材料${i + 1}`;
   });
 }
