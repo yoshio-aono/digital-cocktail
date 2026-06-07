@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>material-viewer — 材料図鑑（DB接続・カテゴリ絞り込み＋情報パネル）</title>
+  </head>
+  <body>
+    <!-- 3D canvas は material-viewer.ts が生成して body に追加する。
+         カテゴリ選択(1段目)・材料プルダウン(2段目)・情報パネルも同 ts が JS で生成する。
+         ※これは(1b)の材料図鑑エントリ。既存の index.html(2液) / single.html(1液) とは別物で、
+           それらは無改変のまま並存する（Vite の multi-entry に1つ足しただけ）。 -->
+    <script type="module" src="/src/material-viewer.ts"></script>
+  </body>
+</html>

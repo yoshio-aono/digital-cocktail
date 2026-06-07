@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# 環境変数（秘密情報。絶対にコミットしない）
+#   実キーは .env.local に入れる（*.local で無視される）。
+#   プレースホルダだけの .env.local.example はコミット対象として残す。
+.env
+.env.*
+!.env.local.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
