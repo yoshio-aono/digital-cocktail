@@ -417,7 +417,18 @@ export function makeSetLiquidAppearance(
     const pg = rgb.g / 255;
     const pb = rgb.b / 255;
 
-    liquidMaterial.attenuationColor.setRGB(pr, pg, pb);
+    // ★ 希釈（density 低下）で「色み(tint)自体」も水へ近づける演出フェード。
+    //   起動時 density(INITIAL_DENSITY) で 0＝既定の見た目は不変。density が下がるほど
+    //   大きくなり、高希釈時だけ強く効くよう 2 乗カーブにする（中濃度はほぼ無変化）。
+    const dilRaw = Math.max(0, 1 - d / INITIAL_DENSITY);
+    const dilFade = dilRaw * dilRaw;
+
+    // 吸収色を白へフェード＝透過に乗る色付きが減り、ほぼ無色透明の水に近づく。
+    liquidMaterial.attenuationColor.setRGB(
+      pr + (1 - pr) * dilFade,
+      pg + (1 - pg) * dilFade,
+      pb + (1 - pb) * dilFade,
+    );
     liquidMaterial.attenuationDistance =
       ATTEN_MAX_DIST - (ATTEN_MAX_DIST - ATTEN_MIN_DIST) * d;
 
@@ -440,10 +451,14 @@ export function makeSetLiquidAppearance(
     liquidMaterial.transmission = BASE_TRANSMISSION * (1.0 - t);
 
     const whiteAmt = WHITE_MAX * Math.min(t / WHITE_SAT_T, 1);
+    // まず濁り(turbidity)で乳白へ寄せ、さらに希釈フェードで白へ寄せる（＝水っぽさ）。
+    const cr = pr + (MILK_WHITE - pr) * whiteAmt;
+    const cg = pg + (MILK_WHITE - pg) * whiteAmt;
+    const cb = pb + (MILK_WHITE - pb) * whiteAmt;
     liquidMaterial.color.setRGB(
-      pr + (MILK_WHITE - pr) * whiteAmt,
-      pg + (MILK_WHITE - pg) * whiteAmt,
-      pb + (MILK_WHITE - pb) * whiteAmt,
+      cr + (1 - cr) * dilFade,
+      cg + (1 - cg) * dilFade,
+      cb + (1 - cb) * dilFade,
     );
 
     const ease = 1 - (1 - t) * (1 - t);
