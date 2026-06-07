@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>visual-engine — カクテル3D</title>
+    <title>mixer — 2液混合ビューアー</title>
   </head>
   <body>
-    <!-- Three.js が生成した canvas をこの body に追加する。
-         レイアウト用の div は不要なので置いていない。 -->
-    <script type="module" src="/src/main.ts"></script>
+    <!-- タブバー・パネル・canvas はすべて mixer-main.ts が JS で生成して body に追加する。
+         ルート（/）＝2液 mixer。旧1液ビューアーは /single.html に移動した。 -->
+    <script type="module" src="/src/mixer/mixer-main.ts"></script>
   </body>
 </html>
