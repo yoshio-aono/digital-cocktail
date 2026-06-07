@@ -161,7 +161,41 @@ function injectStyle(): void {
     .slider-row { margin: 12px 0; }
     .slider-head { display: flex; justify-content: space-between; font-size: 15px; color: #b7b7c6; margin-bottom: 4px; }
     .slider-val { color: #fff; font-variant-numeric: tabular-nums; }
-    input[type=range] { width: 100%; }
+    /* スライダー（横トグル）。スマホで指で掴みやすいよう、つまみを大きくし、
+       入力要素の高さを広げて縦方向の当たり判定を甘くする。
+       ※WebKit(iOS/Chrome)はつまみを自前で描くため appearance:none が必要。
+         そのぶんトラックとつまみを擬似要素で完全に指定する。 */
+    input[type=range] {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 40px;            /* 当たり判定の縦幅（見た目より広め） */
+      background: transparent;  /* トラックは下の擬似要素で描く */
+      cursor: pointer;
+      margin: 6px 0;
+    }
+    /* トラック（WebKit） */
+    input[type=range]::-webkit-slider-runnable-track {
+      height: 6px; border-radius: 3px; background: #3a3a46;
+    }
+    /* つまみ（WebKit）＝大きめの円。指で掴みやすいサイズ。 */
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: #6da8ff; border: 2px solid #cfe0ff;
+      margin-top: -12px;       /* (track6 - thumb30)/2 で中央に乗せる */
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+    /* トラック（Firefox） */
+    input[type=range]::-moz-range-track {
+      height: 6px; border-radius: 3px; background: #3a3a46;
+    }
+    /* つまみ（Firefox） */
+    input[type=range]::-moz-range-thumb {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: #6da8ff; border: 2px solid #cfe0ff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
     /* スライダー直下の数字表示（液体1:90% 液体2:10% / 希釈率;3.5倍）。
        視認性を高めるため赤っぽい文字色にする。 */
     .mix-readout { font-size: 15px; color: #ff7a7a; margin: -4px 0 2px; text-align: right; font-variant-numeric: tabular-nums; }
