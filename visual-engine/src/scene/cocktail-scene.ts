@@ -287,6 +287,9 @@ const BASE_ENVMAP_INTENSITY = 0.3;
 const MILK_WHITE = 0.85;
 const WHITE_MAX = 0.15;
 const WHITE_SAT_T = 0.3;
+// 液体の厚み（透過の光路長）の基準値。density に比例させて希釈を強く効かせる。
+//   起動時の density(INITIAL_DENSITY) でちょうどこの値になるよう正規化するので既定は不変。
+const BASE_THICKNESS = 6;
 
 // 起動時の density（attenuationDistance=2 に一致する値）。main.ts と同一の逆算。
 export const INITIAL_DENSITY =
@@ -355,7 +358,7 @@ export function createRichLiquidMaterial(
     transmission: 0.98,
     attenuationColor: col.clone(),
     attenuationDistance: 2,
-    thickness: 6,
+    thickness: BASE_THICKNESS,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -417,6 +420,11 @@ export function makeSetLiquidAppearance(
     liquidMaterial.attenuationColor.setRGB(pr, pg, pb);
     liquidMaterial.attenuationDistance =
       ATTEN_MAX_DIST - (ATTEN_MAX_DIST - ATTEN_MIN_DIST) * d;
+
+    // ★ 透過の光路長（厚み）も density に追従させる。透過が支配的なので、これが
+    //   希釈（density低下）を最も強く見た目に効かせるレバー。起動時 density で
+    //   BASE_THICKNESS のまま＝既定の見た目（1液プログラム含む）は不変。
+    liquidMaterial.thickness = BASE_THICKNESS * (d / INITIAL_DENSITY);
 
     // ★ 縦グラデの吸光強度も density に追従させる（希釈＝density低下を見た目に効かせる）。
     //   起動時の density（INITIAL_DENSITY）で基準値そのままになるよう正規化するので、
