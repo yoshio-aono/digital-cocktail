@@ -53,14 +53,14 @@ const liquid1: LiquidParams = {
   sat: 1,
   val: 1,
   density: 0.7,
-  turbidity: 0.1,
+  turbidity: 0,
 }; // 青系
 const liquid2: LiquidParams = {
   hue: 40,
   sat: 1,
   val: 1,
   density: 0.6,
-  turbidity: 0.1,
+  turbidity: 0,
 }; // 黄橙系
 let ratio = 0.5; // 比率A：0=液体1のみ / 1=液体2のみ
 let dilution = 0.0; // 希釈B：0〜MAX_DILUTION
@@ -251,6 +251,8 @@ const block2 = makeCollapsible('液体2', makeLiquidBody(canvas2, uiMount2));
 const mixBody = el('div', 'block-body');
 
 // --- 混合比率スライダー＋その下の数字表示（液体1：XX% 液体2：YY%）---
+//   内部の ratio は従来どおり「0=液体1だけ / 1=液体2だけ」。ただしスライダーは
+//   左端(=0)を液体2の100%にしたいので、表示値 v と ratio を反転させる（ratio=1-v）。
 const ratioReadout = el('div', 'mix-readout');
 function updateRatioReadout(): void {
   // ratio=0で液体1だけ(100%)、ratio=1で液体2だけ(100%)。
@@ -258,22 +260,20 @@ function updateRatioReadout(): void {
 }
 updateRatioReadout();
 mixBody.append(
-  makeSlider('混合比率 (液体1 ⇔ 液体2)', 0, 1, 0.01, ratio, (v) => v.toFixed(2), (v) => {
-    ratio = v;
+  // 左端＝液体2(100%)、右端＝液体1(100%)。スライダー値 v に対し ratio = 1 - v。
+  makeSlider('混合比率 (液体2 ⇔ 液体1)', 0, 1, 0.01, 1 - ratio, (v) => v.toFixed(2), (v) => {
+    ratio = 1 - v;
     updateRatioReadout();
     onChange();
   }),
   ratioReadout,
 );
 
-// --- 希釈スライダー＋その下の数字表示（希釈率；X.X倍）---
-//   希釈率＝全体量／元の液量＝1/(1-w)。w=0で1.0倍、w=MAX_DILUTION(0.8)で5.0倍。
-function dilutionFactor(w: number): number {
-  return 1 / (1 - w);
-}
+// --- 希釈スライダー＋その下の数字表示（原液濃度；XX%）---
+//   原液濃度＝元の液量／全体量＝(1-w)。w=0で100%、w=MAX_DILUTION(0.8)で20%（=5倍量）。
 const dilutionReadout = el('div', 'mix-readout');
 function updateDilutionReadout(): void {
-  dilutionReadout.textContent = `希釈率；${dilutionFactor(dilution).toFixed(1)}倍`;
+  dilutionReadout.textContent = `原液濃度：${Math.round((1 - dilution) * 100)}%`;
 }
 updateDilutionReadout();
 mixBody.append(
