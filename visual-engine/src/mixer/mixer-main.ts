@@ -261,7 +261,8 @@ function updateRatioReadout(): void {
 updateRatioReadout();
 mixBody.append(
   // 左端＝液体2(100%)、右端＝液体1(100%)。スライダー値 v に対し ratio = 1 - v。
-  makeSlider('混合比率 (液体2 ⇔ 液体1)', 0, 1, 0.01, 1 - ratio, (v) => v.toFixed(2), (v) => {
+  //   右端の数値表示は不要なので format は空文字を返す（下の readout で割合を表示）。
+  makeSlider('混合比率 (液体2 ⇔ 液体1)', 0, 1, 0.01, 1 - ratio, () => '', (v) => {
     ratio = 1 - v;
     updateRatioReadout();
     onChange();
@@ -277,7 +278,8 @@ function updateDilutionReadout(): void {
 }
 updateDilutionReadout();
 mixBody.append(
-  makeSlider('希釈（水）', 0, MAX_DILUTION, 0.01, dilution, (v) => v.toFixed(2), (v) => {
+  // 右端の数値表示は不要なので format は空文字を返す（下の readout で原液濃度を表示）。
+  makeSlider('希釈（水）', 0, MAX_DILUTION, 0.01, dilution, () => '', (v) => {
     dilution = v;
     updateDilutionReadout();
     onChange();
