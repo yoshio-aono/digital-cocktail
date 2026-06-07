@@ -179,8 +179,8 @@ status.style.cssText =
 filterContent.appendChild(status);
 
 // --- 開閉のしくみ ---
-//   既定は開いた状態。ヘッダーをクリックするたびに開閉をトグルする。
-let filterCollapsed = false;
+//   既定は閉じた状態。ヘッダーをクリックするたびに開閉をトグルする。
+let filterCollapsed = true;
 function applyFilterCollapsed(): void {
   filterContent.style.display = filterCollapsed ? 'none' : 'block';
   filterCaret.textContent = filterCollapsed ? '▶' : '▼';
@@ -405,8 +405,8 @@ function drawRadar(row: IngredientRow | null): void {
   }
 }
 
-// 味覚情報の開閉。既定は開いた状態。ヘッダークリックでトグル。
-let tasteCollapsed = false;
+// 味覚情報の開閉。既定は閉じた状態。ヘッダークリックでトグル。
+let tasteCollapsed = true;
 function applyTasteCollapsed(): void {
   tasteContent.style.display = tasteCollapsed ? 'none' : 'block';
   tasteCaret.textContent = tasteCollapsed ? '▶' : '▼';
