@@ -119,8 +119,10 @@ function makeCollapsible(
   const block = el('div', 'block');
   const header = el('button', 'block-header');
   header.type = 'button';
-  header.textContent = '▼ ' + title;
-  let open = true;
+  // 初期は閉じた状態（設定ビューに来たとき3ボックスとも畳んでおく）。
+  let open = false;
+  body.style.display = 'none';
+  header.textContent = '▶ ' + title;
   header.addEventListener('click', () => {
     open = !open;
     body.style.display = open ? '' : 'none';
